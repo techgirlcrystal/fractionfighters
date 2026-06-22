@@ -1,0 +1,19 @@
+{
+  "name": "Fraction Fighters",
+  "short_name": "Fraction Fighters",
+  "description": "A 6th-grade fraction math game with stick figure boss battles. Add, subtract, multiply, and divide fractions to win!",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1226",
+  "theme_color": "#0f1226",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "games", "kids"]
+}

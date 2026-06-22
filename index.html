@@ -2,8 +2,36 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Fraction Fighters — Add & Subtract</title>
+
+<!-- PWA -->
+<link rel="manifest" href="./manifest.json" />
+<meta name="theme-color" content="#0f1226" />
+<link rel="apple-touch-icon" href="./icon.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Fraction Fighters" />
+<meta name="mobile-web-app-capable" content="yes" />
+
+<!-- Social Media Card (Open Graph / Facebook / LinkedIn) -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Fraction Fighters — Learn Fractions by Battling Stick Figures!" />
+<meta property="og:description" content="A fun 6th-grade math game. Solve fraction problems (add, subtract, multiply, divide) then fight stick figure bosses! Play free in your browser." />
+<meta property="og:image" content="./icon.svg" />
+<meta property="og:image:alt" content="Fraction Fighters game logo — a fraction 1/2 next to a stick figure fighter" />
+<meta property="og:site_name" content="Fraction Fighters" />
+
+<!-- Twitter / X Card -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Fraction Fighters — Learn Fractions by Battling Stick Figures!" />
+<meta name="twitter:description" content="A fun 6th-grade math game. Solve fraction problems then fight stick figure bosses! Play free in your browser." />
+<meta name="twitter:image" content="./icon.svg" />
+
+<!-- SEO -->
+<meta name="description" content="A fun 6th-grade fraction math game with stick figure boss battles. Practice adding, subtracting, multiplying, and dividing fractions. Free, no signup, works offline." />
+<meta name="keywords" content="fractions, math game, 6th grade, addition, subtraction, multiplication, division, educational game, kids math" />
+
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -716,6 +744,13 @@ function stopAnim(){ if(animFrame){ cancelAnimationFrame(animFrame); animFrame=n
 /* ---------- INIT ---------- */
 renderQuestion();
 updateHUD();
+
+/* ---------- PWA: Register Service Worker ---------- */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(err=>console.log('SW failed:', err));
+  });
+}
 </script>
 </body>
 </html>
