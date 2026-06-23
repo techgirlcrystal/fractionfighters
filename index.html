@@ -1629,13 +1629,30 @@ window.addEventListener('load', async function(){
     ui: { ClerkUI: window.__internal_ClerkUICtor },
   });
 
+  // Wait for Clerk client to be fully ready (handles OAuth redirect timing)
+  if(Clerk.client){
+    await Clerk.client.waitForReady?.();
+  }
+
   // Check auth state and show appropriate screen
   updateAuthUI();
 
-  // Listen for auth changes
-  Clerk.addListener(({ isSignedIn }) => {
+  // Listen for auth changes (handles sign in/out)
+  Clerk.addListener(() => {
     updateAuthUI();
   });
+
+  // Also poll for auth changes — OAuth redirects can take a moment
+  // to settle, and the listener might miss the initial state
+  let lastSignedIn = Clerk.isSignedIn;
+  const authPoll = setInterval(() => {
+    if(Clerk.isSignedIn !== lastSignedIn){
+      lastSignedIn = Clerk.isSignedIn;
+      updateAuthUI();
+    }
+    // Stop polling once signed in
+    if(lastSignedIn) clearInterval(authPoll);
+  }, 500);
 });
 
 function updateAuthUI(){
