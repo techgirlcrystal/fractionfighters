@@ -1,11 +1,7 @@
-FROM nginx:alpine
-COPY index.html /usr/share/nginx/html/index.html
-COPY clerk-config.js /usr/share/nginx/html/clerk-config.js
-COPY manifest.json /usr/share/nginx/html/manifest.json
-COPY sw.js /usr/share/nginx/html/sw.js
-COPY icon.svg /usr/share/nginx/html/icon.svg
-COPY icon-192.png /usr/share/nginx/html/icon-192.png
-COPY icon-512.png /usr/share/nginx/html/icon-512.png
-COPY apple-touch-icon.png /usr/share/nginx/html/apple-touch-icon.png
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+FROM node:20-alpine
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --production
+COPY . .
+EXPOSE 8080
+CMD ["node", "server.js"]

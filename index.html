@@ -314,6 +314,14 @@
     <h2 id="endTitle"></h2>
     <p id="endMsg" style="margin:12px 0; color:var(--muted);"></p>
     <button class="btn" id="restartBtn">Play Again</button>
+    <button class="btn secondary" id="showLeaderboardBtn" style="font-size:14px; padding:8px 18px;">🏆 View Leaderboard</button>
+  </div>
+
+  <!-- LEADERBOARD -->
+  <div id="leaderboardPhase" class="hidden" style="text-align:center;">
+    <h2 style="color:var(--accent);">🏆 Leaderboard</h2>
+    <div id="leaderboardList" style="margin:16px 0;"></div>
+    <button class="btn" id="closeLeaderboardBtn">Back</button>
   </div>
 
   <!-- LEVEL CLEAR (breath between levels) -->
@@ -568,6 +576,7 @@ function startActivity(){
 // Generic "you won the activity" handler
 function winActivity(){
   state.score += 50;
+  saveScore();
   stopAnim();
   setTimeout(()=>{
     // hide whatever activity phase is showing
@@ -581,6 +590,7 @@ function winActivity(){
 }
 
 function loseActivity(msg){
+  saveScore();
   stopAnim();
   setTimeout(()=>{
     document.querySelectorAll('[id$="Phase"]').forEach(el=>el.classList.add('hidden'));
@@ -589,6 +599,50 @@ function loseActivity(msg){
     $('endTitle').style.color = 'var(--bad)';
     $('endMsg').textContent = `${msg || 'You lost!'} Final score: ${state.score}. Try again!`;
   }, 1200);
+}
+
+/* ---------- SCORE SAVING + LEADERBOARD ---------- */
+async function getClerkToken(){
+  if(typeof Clerk === 'undefined' || !Clerk.isSignedIn) return null;
+  try {
+    return await Clerk.session.getToken();
+  } catch(e) {
+    console.error('Failed to get Clerk token:', e);
+    return null;
+  }
+}
+
+async function saveScore(){
+  const token = await getClerkToken();
+  if(!token){
+    console.log('Not signed in — score not saved to DB');
+    return;
+  }
+  try {
+    const res = await fetch('/api/scores', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ score: state.score, level: state.round })
+    });
+    const data = await res.json();
+    if(data.success) console.log('✅ Score saved to DB!');
+  } catch(e) {
+    console.error('Failed to save score:', e);
+  }
+}
+
+async function loadLeaderboard(){
+  try {
+    const res = await fetch('/api/leaderboard');
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch(e) {
+    console.error('Failed to load leaderboard:', e);
+    return [];
+  }
 }
 
 function startFight(){
@@ -768,6 +822,37 @@ $('restartBtn').addEventListener('click', ()=>{
   renderQuestion();
   mathPhase.classList.remove('hidden');
 });
+
+// Leaderboard buttons
+$('showLeaderboardBtn').addEventListener('click', showLeaderboard);
+$('closeLeaderboardBtn').addEventListener('click', ()=>{
+  $('leaderboardPhase').classList.add('hidden');
+  $('endPhase').classList.remove('hidden');
+});
+
+async function showLeaderboard(){
+  $('endPhase').classList.add('hidden');
+  $('leaderboardPhase').classList.remove('hidden');
+  $('leaderboardList').innerHTML = '<p style="color:var(--muted);">Loading...</p>';
+  const board = await loadLeaderboard();
+  if(board.length === 0){
+    $('leaderboardList').innerHTML = '<p style="color:var(--muted);">No scores yet. Be the first!</p>';
+    return;
+  }
+  let html = '<table style="margin:0 auto; border-collapse:collapse; width:100%; max-width:500px;">';
+  html += '<tr style="border-bottom:2px solid #3a3f7a;"><th style="padding:8px; text-align:left;">#</th><th style="padding:8px; text-align:left;">Player</th><th style="padding:8px;">Score</th><th style="padding:8px;">Level</th></tr>';
+  board.forEach((row, i) => {
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
+    html += `<tr style="border-bottom:1px solid #2a2f6a;">
+      <td style="padding:8px;">${medal}</td>
+      <td style="padding:8px; text-align:left;">${row.username}</td>
+      <td style="padding:8px; font-weight:bold; color:var(--accent);">${row.best_score}</td>
+      <td style="padding:8px;">${row.highest_level}</td>
+    </tr>`;
+  });
+  html += '</table>';
+  $('leaderboardList').innerHTML = html;
+}
 
 /* ---------- DRAW ---------- */
 function spawnParticles(x,y,color){
