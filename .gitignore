@@ -3,4 +3,10 @@
 node_modules/
 package.json
 package-lock.json
+
+# SECRETS — never commit these
 .env
+.env.local
+.env.production
+credentials.json
+token.json

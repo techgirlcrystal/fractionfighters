@@ -216,6 +216,7 @@
       <div class="progress"><div id="progBar"></div></div>
       <div class="stat">Streak <b id="streak">0</b>/5 • Score <b id="score">0</b></div>
     </div>
+    <div style="text-align:center; color:var(--muted); font-size:13px; margin-bottom:10px;">Win: <b id="activityName">Stick Boss Fight</b></div>
 
     <div class="question" id="question"></div>
 
@@ -255,6 +256,49 @@
     </div>
   </div>
 
+  <!-- MINI-GAME PHASES -->
+  <div id="pencilPhase" class="hidden">
+    <div class="hud"><div class="stat">✏️ Pencil Break</div><div class="progress"><div id="pencilProg" style="width:0%"></div></div><div class="stat">Score: <b id="score2">0</b></div></div>
+    <canvas id="pencilCanvas" width="600" height="320"></canvas>
+    <div style="text-align:center; color:var(--muted); font-size:13px; margin-top:8px;">Hold <b>BACKSPACE</b> to charge power, release to snap the pencil!</div>
+    <div class="feedback" id="pencilFeedback"></div>
+  </div>
+
+  <div id="paperPhase" class="hidden">
+    <div class="hud"><div class="stat">📄 Paper Toss</div><div class="progress"><div id="paperProg" style="width:0%"></div></div><div class="stat">Chances: <b id="paperChances">5</b></div></div>
+    <canvas id="paperCanvas" width="600" height="320"></canvas>
+    <div style="text-align:center; color:var(--muted); font-size:13px; margin-top:8px;">◀ ▶ Aim &nbsp;|&nbsp; SPACE Throw &nbsp;|&nbsp; Land 3 in the trash to win!</div>
+    <div class="feedback" id="paperFeedback"></div>
+  </div>
+
+  <div id="tetrisPhase" class="hidden">
+    <div class="hud"><div class="stat">🟦 Tetris</div><div class="progress"><div id="tetrisProg" style="width:100%"></div></div><div class="stat">Time: <b id="tetrisTime">120</b>s • Lines: <b id="tetrisLines">0</b></div></div>
+    <canvas id="tetrisCanvas" width="300" height="600" style="max-width:300px;"></canvas>
+    <div style="text-align:center; color:var(--muted); font-size:13px; margin-top:8px;">◀ ▶ Move &nbsp;|&nbsp; ▲ Rotate &nbsp;|&nbsp; ▼ Drop &nbsp;|&nbsp; Survive 2 min or clear 10 lines!</div>
+    <div class="feedback" id="tetrisFeedback"></div>
+  </div>
+
+  <div id="bubblesPhase" class="hidden">
+    <div class="hud"><div class="stat">🫧 Bubble Pop!</div><div class="progress"><div id="bubblesProg" style="width:0%"></div></div><div class="stat">Popped: <b id="bubblesCount">0</b>/20</div></div>
+    <canvas id="bubblesCanvas" width="600" height="320"></canvas>
+    <div style="text-align:center; color:var(--muted); font-size:13px; margin-top:8px;">Click or tap the bubbles to pop them!</div>
+    <div class="feedback" id="bubblesFeedback"></div>
+  </div>
+
+  <div id="connect4Phase" class="hidden">
+    <div class="hud"><div class="stat">🔴 Connect 4</div><div class="progress"><div style="width:100%"></div></div><div class="stat">Beat the computer!</div></div>
+    <canvas id="connect4Canvas" width="560" height="480" style="max-width:560px;"></canvas>
+    <div style="text-align:center; color:var(--muted); font-size:13px; margin-top:8px;">Click a column to drop your piece. Connect 4 to win!</div>
+    <div class="feedback" id="connect4Feedback"></div>
+  </div>
+
+  <div id="tictactoePhase" class="hidden">
+    <div class="hud"><div class="stat">⭕ Tic Tac Toe</div><div class="progress"><div style="width:100%"></div></div><div class="stat">Beat the computer!</div></div>
+    <canvas id="tttCanvas" width="300" height="300" style="max-width:300px;"></canvas>
+    <div style="text-align:center; color:var(--muted); font-size:13px; margin-top:8px;">Click a square. You are ❌, computer is ⭕. Win 2 of 3!</div>
+    <div class="feedback" id="tttFeedback"></div>
+  </div>
+
   <!-- WIN / LOSE -->
   <div id="endPhase" class="hidden" style="text-align:center;">
     <h2 id="endTitle"></h2>
@@ -279,21 +323,35 @@ function simplify(n,d){
   const g = gcd(n,d);
   return [n/g, d/g];
 }
-// Level → operation. Cycles after level 4.
-function opForRound(round){
-  const ops = ['+','-','×','÷'];
-  return ops[(round-1) % ops.length];
-}
-function levelName(round){
-  const names = { '+':'Addition', '-':'Subtraction', '×':'Multiplication', '÷':'Division' };
-  return names[opForRound(round)] || 'Mixed';
-}
+// Level definitions: each level has a math operation + an activity (fight or mini-game)
+// Cycles after all levels.
+const LEVELS = [
+  { op:'+',  activity:'fight',     name:'Addition',        activityName:'Stick Boss Fight' },
+  { op:'-',  activity:'pencil',    name:'Subtraction',     activityName:'Pencil Break' },
+  { op:'×', activity:'paper',     name:'Multiplication', activityName:'Paper Toss' },
+  { op:'÷', activity:'tetris',    name:'Division',        activityName:'Tetris (2 min)' },
+  { op:'imp',activity:'bubbles',  name:'Improper→Proper',  activityName:'Bubble Pop' },
+  { op:'+',  activity:'connect4', name:'Addition',        activityName:'Connect 4' },
+  { op:'-',  activity:'tictactoe',name:'Subtraction',     activityName:'Tic Tac Toe' },
+];
+
+function currentLevel(){ return LEVELS[(state.round-1) % LEVELS.length]; }
+function opForRound(round){ return currentLevel().op; }
+function levelName(round){ return currentLevel().name; }
+function activityName(round){ return currentLevel().activityName; }
 
 function makeQuestion(){
   const op = opForRound(state.round);
   let a,b,c,d,num,den;
 
-  if(op === '×'){
+  if(op === 'imp'){
+    // Improper → Proper: show an improper fraction, student simplifies it
+    // e.g. 6/4 → 3/2. They enter the simplified form.
+    b = rand(2,8);
+    a = rand(b+1, b*3);   // improper: numerator > denominator
+    c = 0; d = 0;         // no second fraction
+    num = a; den = b;
+  } else if(op === '×'){
     // Multiplication: (a/b) × (c/d) — keep small
     b = rand(2,8); d = rand(2,8);
     a = rand(1, b-1); c = rand(1, d-1);
@@ -336,7 +394,8 @@ function makeQuestion(){
     if(op==='+'){ num = a*d + c*b; }
     else if(op==='-'){ if((a/b) <= (c/d)){ [a,c]=[c,a]; [b,d]=[d,b]; } num = a*d - c*b; }
     else if(op==='×'){ num = a*c; }
-    else { num = a*d; den = b*c; }
+    else if(op==='÷'){ num = a*d; den = b*c; }
+    else { num = a; den = b; }  // imp
     guard++;
   }
 
@@ -368,13 +427,25 @@ const levelClearPhase = $('levelClearPhase');
 function renderQuestion(){
   state.current = makeQuestion();
   const q = state.current;
-  $('question').innerHTML = `
-    <span class="frac"><span class="top">${q.a}</span><span class="bot">${q.b}</span></span>
-    <span class="op">${q.op}</span>
-    <span class="frac"><span class="top">${q.c}</span><span class="bot">${q.d}</span></span>
-    <span class="equals">=</span>
-    <span class="frac"><span class="top">?</span><span class="bot">?</span></span>
-  `;
+  let html;
+  if(q.op === 'imp'){
+    // Improper → Proper: show single improper fraction, simplify it
+    html = `
+      <div style="font-size:14px; color:var(--muted); margin-bottom:8px;">Simplify this fraction:</div>
+      <span class="frac"><span class="top">${q.a}</span><span class="bot">${q.b}</span></span>
+      <span class="equals">=</span>
+      <span class="frac"><span class="top">?</span><span class="bot">?</span></span>
+    `;
+  } else {
+    html = `
+      <span class="frac"><span class="top">${q.a}</span><span class="bot">${q.b}</span></span>
+      <span class="op">${q.op}</span>
+      <span class="frac"><span class="top">${q.c}</span><span class="bot">${q.d}</span></span>
+      <span class="equals">=</span>
+      <span class="frac"><span class="top">?</span><span class="bot">?</span></span>
+    `;
+  }
+  $('question').innerHTML = html;
   $('ansNum').value=''; $('ansDen').value='';
   $('ansNum').focus();
   $('feedback').textContent='';
@@ -398,8 +469,9 @@ function checkAnswer(){
     showFB(`✅ Correct! ${sn}/${sd}`, true);
     updateHUD();
     if(state.streak >= 5){
-      showFB(`🔥 5 in a row! Get ready to FIGHT!`, true);
-      setTimeout(startFight, 1200);
+      const lvl = currentLevel();
+      showFB(`🔥 5 in a row! Get ready for ${lvl.activityName}!`, true);
+      setTimeout(startActivity, 1200);
     } else {
       setTimeout(renderQuestion, 1100);
     }
@@ -422,6 +494,7 @@ function updateHUD(){
   $('score').textContent = state.score;
   $('levelNum').textContent = state.round;
   $('levelOp').textContent = levelName(state.round);
+  $('activityName').textContent = activityName(state.round);
   $('progBar').style.width = Math.min(100, state.streak*20) + '%';
 }
 
@@ -465,6 +538,47 @@ function resetBodies(){
     punching: 0, punchCD: 0, hurt: 0,
     aiTimer: 0, aiState: 'approach'
   };
+}
+
+// Route to the correct activity based on the current level
+function startActivity(){
+  const lvl = currentLevel();
+  switch(lvl.activity){
+    case 'fight':     startFight(); break;
+    case 'pencil':    startPencilBreak(); break;
+    case 'paper':     startPaperToss(); break;
+    case 'tetris':    startTetris(); break;
+    case 'bubbles':   startBubbles(); break;
+    case 'connect4':  startConnect4(); break;
+    case 'tictactoe': startTicTacToe(); break;
+    default:          startFight();
+  }
+}
+
+// Generic "you won the activity" handler
+function winActivity(){
+  state.score += 50;
+  stopAnim();
+  setTimeout(()=>{
+    // hide whatever activity phase is showing
+    document.querySelectorAll('[id$="Phase"]').forEach(el=>el.classList.add('hidden'));
+    const nextRound = state.round + 1;
+    const nextLvl = LEVELS[(nextRound-1) % LEVELS.length];
+    $('clearTitle').textContent = `🏆 Level ${state.round} Cleared!`;
+    $('clearMsg').innerHTML = `You beat <b>${currentLevel().activityName}</b>!<br>Score: <b>${state.score}</b><br>Next up: Level ${nextRound} — <b>${nextLvl.name}</b> (${nextLvl.activityName})`;
+    levelClearPhase.classList.remove('hidden');
+  }, 1200);
+}
+
+function loseActivity(msg){
+  stopAnim();
+  setTimeout(()=>{
+    document.querySelectorAll('[id$="Phase"]').forEach(el=>el.classList.add('hidden'));
+    endPhase.classList.remove('hidden');
+    $('endTitle').textContent = '💀 Game Over!';
+    $('endTitle').style.color = 'var(--bad)';
+    $('endMsg').textContent = `${msg || 'You lost!'} Final score: ${state.score}. Try again!`;
+  }, 1200);
 }
 
 function startFight(){
@@ -526,7 +640,7 @@ function tryPlayerHit(){
 function tryBossHit(){
   const dist = Math.abs(player.x - boss.x);
   if(dist <= BOSS_REACH){
-    const dmg = 6 + rand(0,6) + state.round*2;
+    const dmg = 5 + rand(0,5) + state.round*1;   // gentle scaling, beatable
     player.hp -= dmg;
     player.hurt = 12;
     player.vx += boss.facing * 6;
@@ -546,27 +660,39 @@ function updateBoss(){
   boss.facing = dist > 0 ? 1 : -1;
 
   if(boss.aiTimer <= 0){
-    // pick a new action
+    // pick a new action — more aggressive but beatable
     const r = Math.random();
     if(Math.abs(dist) > BOSS_REACH - 5){
       boss.aiState = 'approach';
-      boss.aiTimer = 30 + rand(0,30);
-    } else if(r < 0.6){
+      boss.aiTimer = 25 + rand(0,20);
+    } else if(r < 0.7){
       boss.aiState = 'punch';
-      boss.aiTimer = 20;
+      boss.aiTimer = 16;
+    } else if(r < 0.85){
+      // occasional jump attack
+      boss.aiState = 'jumpattack';
+      boss.aiTimer = 30;
     } else {
       boss.aiState = 'retreat';
-      boss.aiTimer = 20 + rand(0,20);
+      boss.aiTimer = 15 + rand(0,15);
     }
   }
 
   if(boss.aiState === 'approach'){
-    boss.vx += boss.facing * 0.4;
+    boss.vx += boss.facing * 0.5;       // a bit faster
   } else if(boss.aiState === 'retreat'){
     boss.vx -= boss.facing * 0.3;
   } else if(boss.aiState === 'punch'){
     boss.vx *= 0.8;
     if(boss.punchCD <= 0 && Math.abs(dist) <= BOSS_REACH){
+      boss.punching = 10;
+      boss.punchCD = 35;                 // slightly longer cooldown = beatable
+      tryBossHit();
+    }
+  } else if(boss.aiState === 'jumpattack'){
+    boss.vx += boss.facing * 0.4;
+    if(boss.y >= GROUND_Y){ boss.vy = -9; }  // hop toward player
+    if(boss.punchCD <= 0 && Math.abs(dist) <= BOSS_REACH + 10){
       boss.punching = 10;
       boss.punchCD = 40;
       tryBossHit();
@@ -604,16 +730,7 @@ function winFight(){
   fightActive = false;
   $('fightFeedback').textContent = `🎉 You defeated ${state.bossName}! +50 points.`;
   $('fightFeedback').className = 'feedback good';
-  state.score += 50;
-  stopAnim();
-  setTimeout(()=>{
-    fightPhase.classList.add('hidden');
-    // Show level-clear breath screen
-    const nextRound = state.round + 1;
-    $('clearTitle').textContent = `🏆 Level ${state.round} Cleared!`;
-    $('clearMsg').innerHTML = `You beat <b>${state.bossName}</b>!<br>Score: <b>${state.score}</b><br>Next up: Level ${nextRound} — <b>${levelName(nextRound)}</b>`;
-    levelClearPhase.classList.remove('hidden');
-  }, 1500);
+  winActivity();
 }
 
 $('nextLevelBtn').addEventListener('click', ()=>{
@@ -629,19 +746,11 @@ function loseFight(){
   fightActive = false;
   $('fightFeedback').textContent = `💀 ${state.bossName} knocked you out!`;
   $('fightFeedback').className = 'feedback bad';
-  setTimeout(()=>{
-    stopAnim();
-    fightPhase.classList.add('hidden');
-    endPhase.classList.remove('hidden');
-    $('endTitle').textContent = '💀 Defeated!';
-    $('endTitle').style.color = 'var(--bad)';
-    $('endMsg').textContent = `${state.bossName} won. Final score: ${state.score}. Try again!`;
-  }, 1400);
+  loseActivity(`${state.bossName} knocked you out!`);
 }
 
 $('restartBtn').addEventListener('click', ()=>{
-  endPhase.classList.add('hidden');
-  levelClearPhase.classList.add('hidden');
+  document.querySelectorAll('[id$="Phase"]').forEach(el=>el.classList.add('hidden'));
   state.streak = 0;
   state.score = 0;
   state.round = 1;
@@ -740,6 +849,628 @@ function loop(){
 }
 function startAnim(){ if(!animFrame) loop(); }
 function stopAnim(){ if(animFrame){ cancelAnimationFrame(animFrame); animFrame=null; } }
+
+/* ============================================================
+   MINI-GAME 1: PENCIL BREAK
+   Hold BACKSPACE to charge, release to snap the pencil
+   ============================================================ */
+let pencilCtx, pencilAnim, pencilPower = 0, pencilCharging = false, pencilDone = false;
+
+function startPencilBreak(){
+  mathPhase.classList.add('hidden');
+  $('pencilPhase').classList.remove('hidden');
+  pencilCtx = $('pencilCanvas').getContext('2d');
+  pencilPower = 0; pencilCharging = false; pencilDone = false;
+  $('pencilFeedback').textContent = 'Hold BACKSPACE to charge power!';
+  $('pencilFeedback').className = 'feedback good';
+  pencilAnim = requestAnimationFrame(pencilLoop);
+}
+
+window.addEventListener('keydown', e=>{
+  if($('pencilPhase').classList.contains('hidden')) return;
+  if(e.key === 'Backspace'){
+    e.preventDefault();
+    if(!pencilDone) pencilCharging = true;
+  }
+});
+window.addEventListener('keyup', e=>{
+  if($('pencilPhase').classList.contains('hidden')) return;
+  if(e.key === 'Backspace' && pencilCharging && !pencilDone){
+    pencilCharging = false;
+    // release — try to break
+    if(pencilPower >= 70){
+      pencilDone = true;
+      $('pencilFeedback').textContent = '✏️💥 SNAP! Pencil broken! +50 points!';
+      $('pencilFeedback').className = 'feedback good';
+      $('pencilProg').style.width = '100%';
+      setTimeout(winActivity, 1500);
+    } else {
+      pencilDone = true;
+      $('pencilFeedback').textContent = `Not enough power (${Math.floor(pencilPower)}%). You needed 70%!`;
+      $('pencilFeedback').className = 'feedback bad';
+      setTimeout(()=>loseActivity('The pencil didn\'t break!'), 1500);
+    }
+  }
+});
+
+function pencilLoop(){
+  if(pencilCharging) pencilPower = Math.min(100, pencilPower + 2);
+  const c = pencilCtx;
+  c.clearRect(0,0,600,320);
+  // background
+  c.fillStyle = '#1a1f4a'; c.fillRect(0,0,600,320);
+  // power meter
+  c.fillStyle = '#0a0d24'; c.fillRect(50, 250, 500, 30);
+  const grad = c.createLinearGradient(50,0,550,0);
+  grad.addColorStop(0,'#4ade80'); grad.addColorStop(0.7,'#ffd23f'); grad.addColorStop(1,'#f87171');
+  c.fillStyle = grad; c.fillRect(50, 250, pencilPower*5, 30);
+  c.strokeStyle = '#3a3f7a'; c.lineWidth = 2; c.strokeRect(50, 250, 500, 30);
+  // target line at 70%
+  c.strokeStyle = '#fff'; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(50+350, 245); c.lineTo(50+350, 285); c.stroke();
+  c.fillStyle = '#fff'; c.font = '12px sans-serif'; c.fillText('70%', 50+340, 240);
+  // pencil
+  const breakPoint = pencilDone && pencilPower >= 70 ? 300 : 9999;
+  c.save(); c.translate(100, 150);
+  // pencil body (yellow)
+  c.fillStyle = '#ffd23f';
+  c.fillRect(0, -15, Math.min(breakPoint, 400), 30);
+  if(pencilDone && pencilPower >= 70){
+    // broken pieces
+    c.fillStyle = '#ffd23f';
+    c.fillRect(310, -10, 90, 20);
+    c.save(); c.translate(420, 0); c.rotate(0.3);
+    c.fillRect(0, -10, 70, 20); c.restore();
+  } else {
+    // tip
+    c.fillStyle = '#d4a017';
+    c.beginPath(); c.moveTo(400,-15); c.lineTo(430,0); c.lineTo(400,15); c.closePath(); c.fill();
+    c.fillStyle = '#333';
+    c.beginPath(); c.moveTo(420,-5); c.lineTo(430,0); c.lineTo(420,5); c.closePath(); c.fill();
+  }
+  // eraser
+  c.fillStyle = '#f87171'; c.fillRect(-30, -15, 30, 30);
+  c.fillStyle = '#9aa3d0'; c.fillRect(-35, -15, 5, 30);
+  c.restore();
+  // label
+  c.fillStyle = '#e8ecff'; c.font = '16px sans-serif'; c.textAlign = 'center';
+  c.fillText(pencilCharging ? 'Charging... release to SNAP!' : (pencilDone ? '' : 'Hold BACKSPACE to charge!'), 300, 50);
+  c.textAlign = 'left';
+  if(!pencilDone) pencilAnim = requestAnimationFrame(pencilLoop);
+}
+
+/* ============================================================
+   MINI-GAME 2: PAPER TOSS
+   Aim with arrows, throw with space, 5 chances, need 3 in trash
+   ============================================================ */
+let paperCtx, paperAnim, paperState;
+
+function startPaperToss(){
+  mathPhase.classList.add('hidden');
+  $('paperPhase').classList.remove('hidden');
+  paperCtx = $('paperCanvas').getContext('2d');
+  paperState = {
+    angle: 45, power: 0, charging: false,
+    chances: 5, scored: 0,
+    ball: null, flying: false, done: false
+  };
+  $('paperChances').textContent = paperState.chances;
+  $('paperFeedback').textContent = 'Aim with ◀ ▶, hold SPACE to charge, release to throw!';
+  $('paperFeedback').className = 'feedback good';
+  paperAnim = requestAnimationFrame(paperLoop);
+}
+
+window.addEventListener('keydown', e=>{
+  if($('paperPhase').classList.contains('hidden')) return;
+  if(paperState && paperState.done) return;
+  if(e.key === 'ArrowLeft') paperState.angle = Math.max(10, paperState.angle - 3);
+  if(e.key === 'ArrowRight') paperState.angle = Math.min(85, paperState.angle + 3);
+  if(e.key === ' ' && !paperState.flying){
+    e.preventDefault();
+    paperState.charging = true;
+  }
+});
+window.addEventListener('keyup', e=>{
+  if($('paperPhase').classList.contains('hidden')) return;
+  if(paperState && paperState.done) return;
+  if(e.key === ' ' && paperState.charging && !paperState.flying){
+    paperState.charging = false;
+    // launch
+    const power = paperState.power;
+    const rad = paperState.angle * Math.PI / 180;
+    paperState.ball = {
+      x: 80, y: 260,
+      vx: Math.cos(rad) * power * 0.15,
+      vy: -Math.sin(rad) * power * 0.15
+    };
+    paperState.flying = true;
+    paperState.power = 0;
+    paperState.chances--;
+    $('paperChances').textContent = paperState.chances;
+  }
+});
+
+function paperLoop(){
+  if(!paperState) return;
+  const c = paperCtx;
+  c.clearRect(0,0,600,320);
+  c.fillStyle = '#1a1f4a'; c.fillRect(0,0,600,320);
+  // ground
+  c.fillStyle = '#3a3f7a'; c.fillRect(0, 280, 600, 40);
+  // trash can
+  c.fillStyle = '#9aa3d0';
+  c.fillRect(480, 200, 80, 80);
+  c.fillStyle = '#6b72a8';
+  c.fillRect(470, 190, 100, 15);
+  // opening (target zone)
+  c.fillStyle = '#0a0d24';
+  c.fillRect(485, 195, 70, 10);
+
+  // power meter
+  if(paperState.charging){
+    paperState.power = Math.min(100, paperState.power + 2);
+    c.fillStyle = '#0a0d24'; c.fillRect(50, 30, 200, 16);
+    c.fillStyle = '#ffd23f'; c.fillRect(50, 30, paperState.power*2, 16);
+  }
+
+  // aim line
+  if(!paperState.flying){
+    const rad = paperState.angle * Math.PI / 180;
+    c.strokeStyle = '#4ade80'; c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(80, 260);
+    c.lineTo(80 + Math.cos(rad)*100, 260 - Math.sin(rad)*100);
+    c.stroke();
+  }
+
+  // ball physics
+  if(paperState.ball && paperState.flying){
+    paperState.ball.vy += 0.3; // gravity
+    paperState.ball.x += paperState.ball.vx;
+    paperState.ball.y += paperState.ball.vy;
+    // check trash can
+    if(paperState.ball.y >= 195 && paperState.ball.y <= 210 &&
+       paperState.ball.x >= 485 && paperState.ball.x <= 555){
+      paperState.scored++;
+      paperState.flying = false; paperState.ball = null;
+      $('paperFeedback').textContent = `🎯 IN! ${paperState.scored}/3 scored.`;
+      $('paperFeedback').className = 'feedback good';
+      $('paperProg').style.width = (paperState.scored/3*100) + '%';
+      if(paperState.scored >= 3){
+        paperState.done = true;
+        $('paperFeedback').textContent = `🎉 You got 3 in the trash! +50 points!`;
+        setTimeout(winActivity, 1500);
+        return;
+      }
+      if(paperState.chances <= 0){
+        paperState.done = true;
+        setTimeout(()=>loseActivity(`Only got ${paperState.scored} in the trash. Needed 3!`), 1000);
+        return;
+      }
+    } else if(paperState.ball.y > 290 || paperState.ball.x > 600){
+      paperState.flying = false; paperState.ball = null;
+      $('paperFeedback').textContent = `Missed! ${paperState.scored}/3 in trash, ${paperState.chances} chances left.`;
+      $('paperFeedback').className = 'feedback bad';
+      if(paperState.chances <= 0){
+        paperState.done = true;
+        setTimeout(()=>loseActivity(`Only got ${paperState.scored} in the trash. Needed 3!`), 1000);
+        return;
+      }
+    }
+  }
+
+  // draw ball
+  if(paperState.ball){
+    c.fillStyle = '#e8ecff';
+    c.beginPath(); c.arc(paperState.ball.x, paperState.ball.y, 8, 0, Math.PI*2); c.fill();
+  } else if(!paperState.flying && !paperState.done){
+    // ball at start
+    c.fillStyle = '#e8ecff';
+    c.beginPath(); c.arc(80, 260, 8, 0, Math.PI*2); c.fill();
+  }
+
+  if(!paperState.done) paperAnim = requestAnimationFrame(paperLoop);
+}
+
+/* ============================================================
+   MINI-GAME 3: TETRIS (2 min or 10 lines)
+   ============================================================ */
+let tCtx, tAnim, tState;
+const TCOLS = 10, TROWS = 20, TCELL = 30;
+const TPIECES = [
+  [[1,1,1,1]],          // I
+  [[1,1],[1,1]],        // O
+  [[0,1,0],[1,1,1]],    // T
+  [[0,1,1],[1,1,0]],    // S
+  [[1,1,0],[0,1,1]],    // Z
+  [[1,0,0],[1,1,1]],    // J
+  [[0,0,1],[1,1,1]]     // L
+];
+const TCOLORS = ['#4ade80','#ffd23f','#a78bfa','#f87171','#60a5fa','#fb923c','#34d399'];
+
+function startTetris(){
+  mathPhase.classList.add('hidden');
+  $('tetrisPhase').classList.remove('hidden');
+  tCtx = $('tetrisCanvas').getContext('2d');
+  tState = {
+    grid: Array.from({length:TROWS}, ()=>Array(TCOLS).fill(0)),
+    piece: null, px: 0, py: 0,
+    dropTimer: 0, dropInterval: 30,
+    lines: 0, timeLeft: 120, lastTime: 0, done: false
+  };
+  spawnPiece();
+  $('tetrisFeedback').textContent = 'Survive 2 minutes or clear 10 lines!';
+  $('tetrisFeedback').className = 'feedback good';
+  tAnim = requestAnimationFrame(tetrisLoop);
+}
+
+function spawnPiece(){
+  const idx = Math.floor(Math.random()*TPIECES.length);
+  tState.piece = TPIECES[idx].map(r=>[...r]);
+  tState.pieceColor = TCOLORS[idx];
+  tState.px = Math.floor(TCOLS/2) - 1;
+  tState.py = 0;
+  if(collides(tState.piece, tState.px, tState.py)){
+    tState.done = true;
+    setTimeout(()=>loseActivity('Tetris board filled up!'), 500);
+  }
+}
+function collides(piece, px, py){
+  for(let r=0;r<piece.length;r++)
+    for(let c=0;c<piece[r].length;c++)
+      if(piece[r][c] && (px+c<0||px+c>=TCOLS||py+r>=TROWS||(py+r>=0&&tState.grid[py+r][px+c])))
+        return true;
+  return false;
+}
+function merge(){
+  tState.piece.forEach((row,r)=>row.forEach((v,c)=>{
+    if(v && tState.py+r>=0) tState.grid[tState.py+r][tState.px+c] = tState.pieceColor;
+  }));
+}
+function clearLines(){
+  let cleared = 0;
+  for(let r=TROWS-1;r>=0;r--){
+    if(tState.grid[r].every(v=>v)){
+      tState.grid.splice(r,1);
+      tState.grid.unshift(Array(TCOLS).fill(0));
+      cleared++; r++;
+    }
+  }
+  if(cleared){ tState.lines += cleared; $('tetrisLines').textContent = tState.lines; }
+  if(tState.lines >= 10){
+    tState.done = true;
+    $('tetrisFeedback').textContent = '🎉 10 lines cleared! +50 points!';
+    setTimeout(winActivity, 1000);
+  }
+}
+function rotate(piece){
+  const rows = piece.length, cols = piece[0].length;
+  const out = Array.from({length:cols},()=>Array(rows).fill(0));
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) out[c][rows-1-r] = piece[r][c];
+  return out;
+}
+
+window.addEventListener('keydown', e=>{
+  if($('tetrisPhase').classList.contains('hidden')) return;
+  if(tState && tState.done) return;
+  if(e.key === 'ArrowLeft' && !collides(tState.piece, tState.px-1, tState.py)) tState.px--;
+  if(e.key === 'ArrowRight' && !collides(tState.piece, tState.px+1, tState.py)) tState.px++;
+  if(e.key === 'ArrowDown' && !collides(tState.piece, tState.px, tState.py+1)) tState.py++;
+  if(e.key === 'ArrowUp'){
+    const r = rotate(tState.piece);
+    if(!collides(r, tState.px, tState.py)) tState.piece = r;
+  }
+  if(['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' '].includes(e.key)) e.preventDefault();
+});
+
+function tetrisLoop(ts){
+  if(!tState || tState.done) return;
+  if(!tState.lastTime) tState.lastTime = ts;
+  const dt = (ts - tState.lastTime)/1000;
+  tState.lastTime = ts;
+  tState.timeLeft -= dt;
+  $('tetrisTime').textContent = Math.max(0, Math.ceil(tState.timeLeft));
+  $('tetrisProg').style.width = Math.max(0, tState.timeLeft/120*100) + '%';
+  if(tState.timeLeft <= 0){
+    tState.done = true;
+    $('tetrisFeedback').textContent = '🎉 You survived 2 minutes! +50 points!';
+    setTimeout(winActivity, 1000);
+    return;
+  }
+  tState.dropTimer++;
+  if(tState.dropTimer >= tState.dropInterval){
+    tState.dropTimer = 0;
+    if(!collides(tState.piece, tState.px, tState.py+1)) tState.py++;
+    else { merge(); clearLines(); spawnPiece(); }
+  }
+  // draw
+  const c = tCtx;
+  c.fillStyle = '#0a0d24'; c.fillRect(0,0,300,600);
+  // grid
+  for(let r=0;r<TROWS;r++) for(let cc=0;cc<TCOLS;cc++){
+    if(tState.grid[r][cc]){
+      c.fillStyle = tState.grid[r][cc];
+      c.fillRect(cc*TCELL, r*TCELL, TCELL-1, TCELL-1);
+    }
+  }
+  // piece
+  if(tState.piece){
+    c.fillStyle = tState.pieceColor;
+    tState.piece.forEach((row,r)=>row.forEach((v,cc)=>{
+      if(v) c.fillRect((tState.px+cc)*TCELL, (tState.py+r)*TCELL, TCELL-1, TCELL-1);
+    }));
+  }
+  tAnim = requestAnimationFrame(tetrisLoop);
+}
+
+/* ============================================================
+   MINI-GAME 4: BUBBLE POP (celebration)
+   ============================================================ */
+let bCtx, bAnim, bState;
+
+function startBubbles(){
+  mathPhase.classList.add('hidden');
+  $('bubblesPhase').classList.remove('hidden');
+  bCtx = $('bubblesCanvas').getContext('2d');
+  bState = { bubbles: [], popped: 0, done: false };
+  for(let i=0;i<20;i++) bState.bubbles.push(makeBubble());
+  $('bubblesFeedback').textContent = 'Pop 20 bubbles to celebrate!';
+  $('bubblesFeedback').className = 'feedback good';
+  bAnim = requestAnimationFrame(bubbleLoop);
+}
+function makeBubble(){
+  const colors = ['#4ade80','#ffd23f','#f87171','#60a5fa','#a78bfa','#fb923c'];
+  return {
+    x: Math.random()*600, y: 320+Math.random()*200,
+    r: 15+Math.random()*20,
+    vy: -0.5-Math.random()*1.5, vx: (Math.random()-0.5)*0.5,
+    color: colors[Math.floor(Math.random()*colors.length)],
+    popped: false
+  };
+}
+$('bubblesCanvas')?.addEventListener('click', e=>{
+  if(!bState || bState.done) return;
+  const rect = e.target.getBoundingClientRect();
+  const sx = (e.clientX-rect.left) * (600/rect.width);
+  const sy = (e.clientY-rect.top) * (320/rect.height);
+  bState.bubbles.forEach(b=>{
+    if(!b.popped && Math.hypot(b.x-sx, b.y-sy) < b.r){
+      b.popped = true; bState.popped++;
+      $('bubblesCount').textContent = bState.popped;
+      $('bubblesProg').style.width = (bState.popped/20*100)+'%';
+      if(bState.popped >= 20){
+        bState.done = true;
+        $('bubblesFeedback').textContent = '🎉 All bubbles popped! +50 points!';
+        setTimeout(winActivity, 1000);
+      }
+    }
+  });
+});
+
+function bubbleLoop(){
+  if(!bState || bState.done) return;
+  const c = bCtx;
+  c.clearRect(0,0,600,320);
+  c.fillStyle = '#1a1f4a'; c.fillRect(0,0,600,320);
+  bState.bubbles.forEach(b=>{
+    if(b.popped) return;
+    b.x += b.vx; b.y += b.vy;
+    if(b.y < -b.r) { b.y = 320+b.r; b.x = Math.random()*600; }
+    c.fillStyle = b.color + '80';
+    c.beginPath(); c.arc(b.x, b.y, b.r, 0, Math.PI*2); c.fill();
+    c.strokeStyle = b.color; c.lineWidth = 2; c.stroke();
+    // shine
+    c.fillStyle = '#ffffff60';
+    c.beginPath(); c.arc(b.x-b.r*0.3, b.y-b.r*0.3, b.r*0.2, 0, Math.PI*2); c.fill();
+  });
+  bAnim = requestAnimationFrame(bubbleLoop);
+}
+
+/* ============================================================
+   MINI-GAME 5: CONNECT 4 (vs computer)
+   ============================================================ */
+let c4Ctx, c4Anim, c4State;
+const C4COLS = 7, C4ROWS = 6, C4CELL = 80;
+
+function startConnect4(){
+  mathPhase.classList.add('hidden');
+  $('connect4Phase').classList.remove('hidden');
+  c4Ctx = $('connect4Canvas').getContext('2d');
+  c4State = {
+    grid: Array.from({length:C4ROWS},()=>Array(C4COLS).fill(0)),
+    turn: 1, done: false, winMsg: ''
+  };
+  $('connect4Feedback').textContent = 'You are RED. Click a column to drop!';
+  $('connect4Feedback').className = 'feedback good';
+  drawConnect4();
+}
+$('connect4Canvas')?.addEventListener('click', e=>{
+  if(!c4State || c4State.done || c4State.turn !== 1) return;
+  const rect = e.target.getBoundingClientRect();
+  const x = (e.clientX-rect.left) * (560/rect.width);
+  const col = Math.floor(x / C4CELL);
+  if(col < 0 || col >= C4COLS) return;
+  if(dropPiece(col, 1)){
+    if(checkWin(1)){ c4State.done=true; c4State.winMsg='You win! +50 points!'; drawConnect4(); setTimeout(winActivity,1500); return; }
+    c4State.turn = 2;
+    setTimeout(c4Computer, 600);
+  }
+});
+function dropPiece(col, player){
+  for(let r=C4ROWS-1;r>=0;r--){
+    if(!c4State.grid[r][col]){
+      c4State.grid[r][col] = player;
+      drawConnect4();
+      return true;
+    }
+  }
+  return false;
+}
+function c4Computer(){
+  if(!c4State || c4State.done) return;
+  // simple AI: try to win, block, or random
+  let col = -1;
+  for(let c=0;c<C4COLS;c++){
+    // simulate
+    for(let r=C4ROWS-1;r>=0;r--){
+      if(!c4State.grid[r][c]){
+        c4State.grid[r][c] = 2;
+        if(checkWin(2)){ c4State.grid[r][c]=0; col=c; break; }
+        c4State.grid[r][c] = 0;
+        break;
+      }
+    }
+    if(col>=0) break;
+  }
+  if(col<0){
+    for(let c=0;c<C4COLS;c++){
+      for(let r=C4ROWS-1;r>=0;r--){
+        if(!c4State.grid[r][c]){
+          c4State.grid[r][c] = 1;
+          if(checkWin(1)){ c4State.grid[r][c]=0; col=c; break; }
+          c4State.grid[r][c] = 0;
+          break;
+        }
+      }
+      if(col>=0) break;
+    }
+  }
+  if(col<0) col = Math.floor(Math.random()*C4COLS);
+  dropPiece(col, 2);
+  if(checkWin(2)){ c4State.done=true; c4State.winMsg='Computer wins!'; drawConnect4(); setTimeout(()=>loseActivity('Computer won Connect 4!'),1500); return; }
+  c4State.turn = 1;
+}
+function checkWin(p){
+  const g = c4State.grid;
+  // horizontal, vertical, diagonal
+  for(let r=0;r<C4ROWS;r++) for(let c=0;c<C4COLS;c++){
+    if(g[r][c]!==p) continue;
+    if(c+3<C4COLS && g[r][c+1]===p&&g[r][c+2]===p&&g[r][c+3]===p) return true;
+    if(r+3<C4ROWS && g[r+1][c]===p&&g[r+2][c]===p&&g[r+3][c]===p) return true;
+    if(r+3<C4ROWS&&c+3<C4COLS && g[r+1][c+1]===p&&g[r+2][c+2]===p&&g[r+3][c+3]===p) return true;
+    if(r+3<C4ROWS&&c-3>=0 && g[r+1][c-1]===p&&g[r+2][c-2]===p&&g[r+3][c-3]===p) return true;
+  }
+  return false;
+}
+function drawConnect4(){
+  if(!c4Ctx) return;
+  const c = c4Ctx;
+  c.fillStyle = '#1a1f4a'; c.fillRect(0,0,560,480);
+  c.fillStyle = '#3a3f7a';
+  c.fillRect(0,0,560,480);
+  for(let r=0;r<C4ROWS;r++) for(let col=0;col<C4COLS;col++){
+    const x = col*C4CELL + C4CELL/2;
+    const y = r*C4CELL + C4CELL/2;
+    c.fillStyle = '#0a0d24';
+    c.beginPath(); c.arc(x, y, C4CELL/2-5, 0, Math.PI*2); c.fill();
+    if(c4State.grid[r][col] === 1){ c.fillStyle = '#f87171'; c.beginPath(); c.arc(x,y,C4CELL/2-8,0,Math.PI*2); c.fill(); }
+    else if(c4State.grid[r][col] === 2){ c.fillStyle = '#ffd23f'; c.beginPath(); c.arc(x,y,C4CELL/2-8,0,Math.PI*2); c.fill(); }
+  }
+  if(c4State && c4State.winMsg){
+    c.fillStyle = '#fff'; c.font = 'bold 24px sans-serif'; c.textAlign = 'center';
+    c.fillText(c4State.winMsg, 280, 240); c.textAlign = 'left';
+  }
+}
+
+/* ============================================================
+   MINI-GAME 6: TIC TAC TOE (best of 3, vs computer)
+   ============================================================ */
+let tttCtx, tttState;
+const TTTCELL = 100;
+
+function startTicTacToe(){
+  mathPhase.classList.add('hidden');
+  $('tictactoePhase').classList.remove('hidden');
+  tttCtx = $('tttCanvas').getContext('2d');
+  tttState = { board: Array(9).fill(0), playerWins: 0, compWins: 0, done: false, turn: 1, msg: '' };
+  $('tttFeedback').textContent = 'You are ❌. Win 2 of 3 rounds!';
+  $('tttFeedback').className = 'feedback good';
+  drawTTT();
+}
+$('tttCanvas')?.addEventListener('click', e=>{
+  if(!tttState || tttState.done || tttState.turn !== 1) return;
+  const rect = e.target.getBoundingClientRect();
+  const x = (e.clientX-rect.left) * (300/rect.width);
+  const y = (e.clientY-rect.top) * (300/rect.height);
+  const cell = Math.floor(y/TTTCELL)*3 + Math.floor(x/TTTCELL);
+  if(cell<0||cell>=9||tttState.board[cell]) return;
+  tttState.board[cell] = 1;
+  drawTTT();
+  if(tttWin(1)){ tttState.playerWins++; tttState.msg = 'You win this round!'; drawTTT(); checkTTTMatch(); return; }
+  if(tttState.board.every(v=>v)){ tttState.msg = 'Tie!'; drawTTT(); setTimeout(()=>{ tttState.board=Array(9).fill(0); tttState.msg=''; drawTTT(); }, 1200); return; }
+  tttState.turn = 2;
+  setTimeout(tttComputer, 500);
+});
+function tttComputer(){
+  if(!tttState || tttState.done) return;
+  // try win, block, center, corner, random
+  let move = tttFindWin(2) || tttFindWin(1) || (tttState.board[4]===0?4:null);
+  if(move===null){
+    const corners = [0,2,6,8].filter(i=>!tttState.board[i]);
+    if(corners.length) move = corners[0];
+  }
+  if(move===null){
+    const empty = tttState.board.map((v,i)=>v?null:i).filter(v=>v!==null);
+    move = empty[Math.floor(Math.random()*empty.length)];
+  }
+  tttState.board[move] = 2;
+  drawTTT();
+  if(tttWin(2)){ tttState.compWins++; tttState.msg = 'Computer wins this round!'; drawTTT(); checkTTTMatch(); return; }
+  if(tttState.board.every(v=>v)){ tttState.msg = 'Tie!'; drawTTT(); setTimeout(()=>{ tttState.board=Array(9).fill(0); tttState.msg=''; drawTTT(); }, 1200); return; }
+  tttState.turn = 1;
+}
+function tttFindWin(p){
+  const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  for(const [a,b,c] of lines){
+    const line = [tttState.board[a],tttState.board[b],tttState.board[c]];
+    if(line.filter(v=>v===p).length===2 && line.includes(0)){
+      if(!tttState.board[a]) return a;
+      if(!tttState.board[b]) return b;
+      if(!tttState.board[c]) return c;
+    }
+  }
+  return null;
+}
+function tttWin(p){
+  const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  return lines.some(([a,b,c])=>tttState.board[a]===p&&tttState.board[b]===p&&tttState.board[c]===p);
+}
+function checkTTTMatch(){
+  drawTTT();
+  if(tttState.playerWins >= 2){
+    tttState.done = true; tttState.msg = '🎉 You won the match! +50 points!';
+    drawTTT(); setTimeout(winActivity, 1500);
+  } else if(tttState.compWins >= 2){
+    tttState.done = true; tttState.msg = '💀 Computer won the match!';
+    drawTTT(); setTimeout(()=>loseActivity('Computer won Tic Tac Toe!'), 1500);
+  } else {
+    setTimeout(()=>{ tttState.board=Array(9).fill(0); tttState.msg=''; tttState.turn=1; drawTTT(); }, 1500);
+  }
+}
+function drawTTT(){
+  if(!tttCtx) return;
+  const c = tttCtx;
+  c.clearRect(0,0,300,300);
+  c.fillStyle = '#1a1f4a'; c.fillRect(0,0,300,300);
+  c.strokeStyle = '#3a3f7a'; c.lineWidth = 4;
+  for(let i=1;i<3;i++){
+    c.beginPath(); c.moveTo(i*TTTCELL,0); c.lineTo(i*TTTCELL,300); c.stroke();
+    c.beginPath(); c.moveTo(0,i*TTTCELL); c.lineTo(300,i*TTTCELL); c.stroke();
+  }
+  tttState.board.forEach((v,i)=>{
+    const x = (i%3)*TTTCELL + TTTCELL/2;
+    const y = Math.floor(i/3)*TTTCELL + TTTCELL/2;
+    if(v===1){ c.strokeStyle='#f87171'; c.lineWidth=6; c.beginPath(); c.moveTo(x-25,y-25); c.lineTo(x+25,y+25); c.moveTo(x+25,y-25); c.lineTo(x-25,y+25); c.stroke(); }
+    else if(v===2){ c.strokeStyle='#4ade80'; c.lineWidth=6; c.beginPath(); c.arc(x,y,28,0,Math.PI*2); c.stroke(); }
+  });
+  if(tttState.msg){
+    c.fillStyle = '#fff'; c.font = 'bold 18px sans-serif'; c.textAlign='center';
+    c.fillText(tttState.msg, 150, 150); c.textAlign='left';
+  }
+  // score
+  c.fillStyle = '#9aa3d0'; c.font = '14px sans-serif';
+  c.fillText(`You ${tttState.playerWins} - ${tttState.compWins} Comp`, 10, 295);
+}
 
 /* ---------- INIT ---------- */
 renderQuestion();
