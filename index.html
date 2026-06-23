@@ -203,6 +203,24 @@
   .attack-btns { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:10px; }
 
   .hidden { display: none !important; }
+
+  /* Leaderboard modal */
+  #lbModal {
+    position: fixed; top:0; left:0; width:100%; height:100%;
+    background: rgba(0,0,0,.7);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  #lbModal.show { display: flex; }
+  #lbModalContent {
+    background: var(--panel);
+    border: 3px solid #3a3f7a;
+    border-radius: 14px;
+    padding: 20px;
+    max-width: 500px; width: 90%;
+    max-height: 80vh; overflow-y: auto;
+  }
 </style>
 </head>
 <body>
@@ -217,7 +235,8 @@
 <div id="game" style="display:none;">
   <h1>⚔️ Fraction Fighters</h1>
   <div class="subtitle">Solve 5 fraction problems, then battle the stick figure boss!</div>
-  <div id="clerk-user-button" style="position:absolute; top:18px; right:18px;"></div>
+  <div id="clerk-user-button" style="position:absolute; top:18px; right:18px; z-index:50;"></div>
+  <button class="btn secondary" id="hudLeaderboardBtn" style="position:absolute; top:18px; left:18px; font-size:13px; padding:6px 14px;">🏆 Leaderboard</button>
 
   <!-- MATH PHASE -->
   <div id="mathPhase">
@@ -231,6 +250,7 @@
     <div class="question" id="question"></div>
 
     <div class="answer-row">
+      <input id="ansWhole" type="number" inputmode="numeric" placeholder="?" style="display:none;" />
       <input id="ansNum" type="number" inputmode="numeric" placeholder="?" />
       <span class="bar">/</span>
       <input id="ansDen" type="number" inputmode="numeric" placeholder="?" />
@@ -313,15 +333,9 @@
   <div id="endPhase" class="hidden" style="text-align:center;">
     <h2 id="endTitle"></h2>
     <p id="endMsg" style="margin:12px 0; color:var(--muted);"></p>
-    <button class="btn" id="restartBtn">Play Again</button>
-    <button class="btn secondary" id="showLeaderboardBtn" style="font-size:14px; padding:8px 18px;">🏆 View Leaderboard</button>
-  </div>
-
-  <!-- LEADERBOARD -->
-  <div id="leaderboardPhase" class="hidden" style="text-align:center;">
-    <h2 style="color:var(--accent);">🏆 Leaderboard</h2>
-    <div id="leaderboardList" style="margin:16px 0;"></div>
-    <button class="btn" id="closeLeaderboardBtn">Back</button>
+    <button class="btn" id="restartBtn">Try Again</button>
+    <button class="btn secondary" id="continueBtn" style="font-size:14px; padding:8px 18px;">Continue to Next Level ▶</button>
+    <div id="endLeaderboardPanel" style="margin-top:18px;"></div>
   </div>
 
   <!-- LEVEL CLEAR (breath between levels) -->
@@ -329,6 +343,16 @@
     <h2 id="clearTitle" style="color:var(--good);">🏆 Level Cleared!</h2>
     <p id="clearMsg" style="margin:12px 0; color:var(--muted); font-size:16px;"></p>
     <button class="btn" id="nextLevelBtn">Next Level ▶</button>
+    <button class="btn secondary" id="playAgainBtn" style="font-size:14px; padding:8px 18px;">🎮 Play Game Again</button>
+    <div id="clearLeaderboardPanel" style="margin-top:18px;"></div>
+  </div>
+  <!-- Leaderboard Modal -->
+  <div id="lbModal">
+    <div id="lbModalContent">
+      <h2 style="color:var(--accent); text-align:center;">🏆 Leaderboard</h2>
+      <div id="lbModalList" style="margin:14px 0;"></div>
+      <button class="btn" id="closeLbModalBtn" style="margin:0 auto;">Close</button>
+    </div>
   </div>
 </div>
 
@@ -363,10 +387,12 @@ function makeQuestion(){
   let a,b,c,d,num,den;
 
   if(op === 'imp'){
-    // Improper → Proper: show an improper fraction, student simplifies it
-    // e.g. 6/4 → 3/2. They enter the simplified form.
-    b = rand(2,8);
-    a = rand(b+1, b*3);   // improper: numerator > denominator
+    // Improper → Proper: show an improper fraction, student converts to a mixed number
+    // e.g. 7/4 → 1 3/4. Avoid problems that reduce to a clean integer.
+    do {
+      b = rand(2,8);
+      a = rand(b+1, b*3);   // improper: numerator > denominator
+    } while(a % b === 0);   // skip clean integers like 6/3 → 2
     c = 0; d = 0;         // no second fraction
     num = a; den = b;
   } else if(op === '×'){
@@ -417,8 +443,15 @@ function makeQuestion(){
     guard++;
   }
 
-  const [rn, rd] = simplify(num, den);
-  return { a,b,c,d,op, answerNum: rn, answerDen: rd };
+  let answerWhole = 0, rn, rd;
+  if(op === 'imp'){
+    // Mixed-number target: whole + (remNum/den) in lowest terms
+    answerWhole = Math.floor(num / den);
+    [rn, rd] = simplify(num % den, den);
+  } else {
+    [rn, rd] = simplify(num, den);
+  }
+  return { a,b,c,d,op, answerNum: rn, answerDen: rd, answerWhole };
 }
 function rand(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
 
@@ -447,13 +480,15 @@ function renderQuestion(){
   const q = state.current;
   let html;
   if(q.op === 'imp'){
-    // Improper → Proper: show single improper fraction, simplify it
+    // Improper → Proper: show single improper fraction, convert to mixed number
     html = `
-      <div style="font-size:14px; color:var(--muted); margin-bottom:8px;">Simplify this fraction:</div>
+      <div style="font-size:14px; color:var(--muted); margin-bottom:8px;">Convert to a mixed number.</div>
       <span class="frac"><span class="top">${q.a}</span><span class="bot">${q.b}</span></span>
       <span class="equals">=</span>
+      <span style="font-size:30px; margin:0 6px;">?</span>
       <span class="frac"><span class="top">?</span><span class="bot">?</span></span>
     `;
+    $('ansWhole').style.display = '';
   } else {
     html = `
       <span class="frac"><span class="top">${q.a}</span><span class="bot">${q.b}</span></span>
@@ -462,29 +497,63 @@ function renderQuestion(){
       <span class="equals">=</span>
       <span class="frac"><span class="top">?</span><span class="bot">?</span></span>
     `;
+    $('ansWhole').style.display = 'none';
   }
   $('question').innerHTML = html;
-  $('ansNum').value=''; $('ansDen').value='';
-  $('ansNum').focus();
+  $('ansWhole').value=''; $('ansNum').value=''; $('ansDen').value='';
+  (q.op === 'imp' ? $('ansWhole') : $('ansNum')).focus();
   $('feedback').textContent='';
   $('feedback').className='feedback';
 }
 
 function checkAnswer(){
   const q = state.current;
-  const un = parseInt($('ansNum').value, 10);
-  const ud = parseInt($('ansDen').value, 10);
-  if(isNaN(un) || isNaN(ud) || ud===0){
-    showFB("Type a number on top and bottom (bottom can't be 0).", false);
-    return;
+  let correct = false;
+  let correctText = '';
+
+  if(q.op === 'imp'){
+    const uw = parseInt($('ansWhole').value, 10);
+    const un = parseInt($('ansNum').value, 10);
+    const ud = parseInt($('ansDen').value, 10);
+
+    // Strict mixed-number form: whole >= 1, fraction part proper and positive.
+    if(isNaN(uw) || uw < 1){
+      showFB("Don't forget the whole-number part! Enter a whole number 1 or more.", false);
+      return;
+    }
+    if(isNaN(un) || isNaN(ud) || un < 1 || ud < 2){
+      showFB("Type the fraction part too — numerator ≥ 1, denominator ≥ 2.", false);
+      return;
+    }
+
+    // Equivalence via improper-fraction cross-multiply. Lenient on simplification
+    // of the fractional part (1 2/4 counts as 1 1/2), strict on mixed-number FORM.
+    const totalLeft  = uw * ud + un;
+    const totalRight = q.answerWhole * q.answerDen + q.answerNum;
+    correct = totalLeft * q.answerDen === totalRight * ud;
+    correctText = correct
+      ? `${uw} ${un}/${ud}`
+      : `${q.answerWhole} ${q.answerNum}/${q.answerDen}`;
+  } else {
+    const un = parseInt($('ansNum').value, 10);
+    const ud = parseInt($('ansDen').value, 10);
+    if(isNaN(un) || isNaN(ud) || ud===0){
+      showFB("Type a number on top and bottom (bottom can't be 0).", false);
+      return;
+    }
+    correct = (un * q.answerDen) === (q.answerNum * ud);
+    if(correct){
+      const [sn,sd] = simplify(un,ud);
+      correctText = `${sn}/${sd}`;
+    } else {
+      correctText = `${q.answerNum}/${q.answerDen}`;
+    }
   }
-  // Accept ANY equivalent fraction (cross-multiply), not just simplified form
-  const correct = (un * q.answerDen) === (q.answerNum * ud);
+
   if(correct){
     state.streak++;
     state.score += 10;
-    const [sn,sd] = simplify(un,ud);
-    showFB(`✅ Correct! ${sn}/${sd}`, true);
+    showFB(`✅ Correct! ${correctText}`, true);
     updateHUD();
     if(state.streak >= 5){
       const lvl = currentLevel();
@@ -495,7 +564,7 @@ function checkAnswer(){
     }
   } else {
     state.streak = 0;
-    showFB(`❌ Nope. Answer: ${q.answerNum}/${q.answerDen}`, false);
+    showFB(`❌ Nope. Answer: ${correctText}`, false);
     updateHUD();
     setTimeout(renderQuestion, 1600);
   }
@@ -517,7 +586,7 @@ function updateHUD(){
 }
 
 $('submitBtn').addEventListener('click', checkAnswer);
-['ansNum','ansDen'].forEach(id=>{
+['ansWhole','ansNum','ansDen'].forEach(id=>{
   $(id).addEventListener('keydown', e=>{ if(e.key==='Enter') checkAnswer(); });
 });
 
@@ -576,7 +645,7 @@ function startActivity(){
 // Generic "you won the activity" handler
 function winActivity(){
   state.score += 50;
-  saveScore();
+  saveScore(state.round + 1);   // save the UNLOCKED level, not the beaten one
   stopAnim();
   setTimeout(()=>{
     // hide whatever activity phase is showing
@@ -586,6 +655,7 @@ function winActivity(){
     $('clearTitle').textContent = `🏆 Level ${state.round} Cleared!`;
     $('clearMsg').innerHTML = `You beat <b>${currentLevel().activityName}</b>!<br>Score: <b>${state.score}</b><br>Next up: Level ${nextRound} — <b>${nextLvl.name}</b> (${nextLvl.activityName})`;
     levelClearPhase.classList.remove('hidden');
+    renderLeaderboardPanel('clearLeaderboardPanel');
   }, 1200);
 }
 
@@ -597,7 +667,8 @@ function loseActivity(msg){
     endPhase.classList.remove('hidden');
     $('endTitle').textContent = '💀 Game Over!';
     $('endTitle').style.color = 'var(--bad)';
-    $('endMsg').textContent = `${msg || 'You lost!'} Final score: ${state.score}. Try again!`;
+    $('endMsg').textContent = `${msg || 'You lost!'} Final score: ${state.score}.`;
+    renderLeaderboardPanel('endLeaderboardPanel');
   }, 1200);
 }
 
@@ -612,12 +683,13 @@ async function getClerkToken(){
   }
 }
 
-async function saveScore(){
+async function saveScore(levelOverride){
   const token = await getClerkToken();
   if(!token){
     console.log('Not signed in — score not saved to DB');
     return;
   }
+  const level = (typeof levelOverride === 'number') ? levelOverride : state.round;
   try {
     const res = await fetch('/api/scores', {
       method: 'POST',
@@ -625,7 +697,7 @@ async function saveScore(){
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ score: state.score, level: state.round })
+      body: JSON.stringify({ score: state.score, level: level })
     });
     const data = await res.json();
     if(data.success) console.log('✅ Score saved to DB!');
@@ -643,6 +715,31 @@ async function loadLeaderboard(){
     console.error('Failed to load leaderboard:', e);
     return [];
   }
+}
+
+async function renderLeaderboardPanel(panelId){
+  const panel = $(panelId);
+  if(!panel) return;
+  panel.innerHTML = '<p style="color:var(--muted); font-size:13px;">Loading leaderboard...</p>';
+  const board = await loadLeaderboard();
+  if(board.length === 0){
+    panel.innerHTML = '<p style="color:var(--muted); font-size:13px;">No scores yet. Be the first!</p>';
+    return;
+  }
+  let html = '<div style="font-size:13px; color:var(--accent); margin-bottom:6px;">🏆 Leaderboard — Top Players</div>';
+  html += '<table style="margin:0 auto; border-collapse:collapse; width:100%; max-width:500px; font-size:13px;">';
+  html += '<tr style="border-bottom:2px solid #3a3f7a;"><th style="padding:6px; text-align:left;">#</th><th style="padding:6px; text-align:left;">Player</th><th style="padding:6px;">Score</th><th style="padding:6px;">Level</th></tr>';
+  board.slice(0, 10).forEach((row, i) => {
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
+    html += `<tr style="border-bottom:1px solid #2a2f6a;">
+      <td style="padding:6px;">${medal}</td>
+      <td style="padding:6px; text-align:left;">${row.username}</td>
+      <td style="padding:6px; font-weight:bold; color:var(--accent);">${row.best_score}</td>
+      <td style="padding:6px;">${row.highest_level}</td>
+    </tr>`;
+  });
+  html += '</table>';
+  panel.innerHTML = html;
 }
 
 function startFight(){
@@ -804,6 +901,17 @@ $('nextLevelBtn').addEventListener('click', ()=>{
   updateHUD();
   renderQuestion();
   mathPhase.classList.remove('hidden');
+  // Re-mount the Clerk user button if something cleared it during the level change
+  const userBtnDiv = document.getElementById('clerk-user-button');
+  if(typeof Clerk !== 'undefined' && Clerk.isSignedIn && userBtnDiv && !userBtnDiv.hasChildNodes()){
+    Clerk.mountUserButton(userBtnDiv);
+  }
+});
+
+$('playAgainBtn').addEventListener('click', ()=>{
+  // Replay just the mini-game for the current level — no math, no level change
+  document.querySelectorAll('[id$="Phase"]').forEach(el=>el.classList.add('hidden'));
+  startActivity();
 });
 
 function loseFight(){
@@ -816,42 +924,44 @@ function loseFight(){
 $('restartBtn').addEventListener('click', ()=>{
   document.querySelectorAll('[id$="Phase"]').forEach(el=>el.classList.add('hidden'));
   state.streak = 0;
-  state.score = 0;
-  state.round = 1;
+  // Keep current level & score — just restart the round's problems
   updateHUD();
   renderQuestion();
   mathPhase.classList.remove('hidden');
 });
 
-// Leaderboard buttons
-$('showLeaderboardBtn').addEventListener('click', showLeaderboard);
-$('closeLeaderboardBtn').addEventListener('click', ()=>{
-  $('leaderboardPhase').classList.add('hidden');
-  $('endPhase').classList.remove('hidden');
+$('continueBtn').addEventListener('click', ()=>{
+  document.querySelectorAll('[id$="Phase"]').forEach(el=>el.classList.add('hidden'));
+  state.round++;
+  state.streak = 0;
+  saveScore(state.round);   // persist the new unlocked level to Neon immediately
+  updateHUD();
+  renderQuestion();
+  mathPhase.classList.remove('hidden');
+  // Re-mount the Clerk user button if something cleared it during the level change
+  const userBtnDiv = document.getElementById('clerk-user-button');
+  if(typeof Clerk !== 'undefined' && Clerk.isSignedIn && userBtnDiv && !userBtnDiv.hasChildNodes()){
+    Clerk.mountUserButton(userBtnDiv);
+  }
 });
 
-async function showLeaderboard(){
-  $('endPhase').classList.add('hidden');
-  $('leaderboardPhase').classList.remove('hidden');
-  $('leaderboardList').innerHTML = '<p style="color:var(--muted);">Loading...</p>';
+// Leaderboard modal
+$('hudLeaderboardBtn').addEventListener('click', openLbModal);
+$('closeLbModalBtn').addEventListener('click', ()=> $('lbModal').classList.remove('show'));
+
+async function openLbModal(){
+  $('lbModal').classList.add('show');
+  $('lbModalList').innerHTML = '<p style="color:var(--muted);">Loading...</p>';
   const board = await loadLeaderboard();
-  if(board.length === 0){
-    $('leaderboardList').innerHTML = '<p style="color:var(--muted);">No scores yet. Be the first!</p>';
-    return;
-  }
-  let html = '<table style="margin:0 auto; border-collapse:collapse; width:100%; max-width:500px;">';
-  html += '<tr style="border-bottom:2px solid #3a3f7a;"><th style="padding:8px; text-align:left;">#</th><th style="padding:8px; text-align:left;">Player</th><th style="padding:8px;">Score</th><th style="padding:8px;">Level</th></tr>';
-  board.forEach((row, i) => {
+  if(board.length === 0){ $('lbModalList').innerHTML = '<p style="color:var(--muted);">No scores yet.</p>'; return; }
+  let html = '<table style="margin:0 auto; border-collapse:collapse; width:100%; font-size:14px;">';
+  html += '<tr style="border-bottom:2px solid #3a3f7a;"><th style="padding:6px; text-align:left;">#</th><th style="padding:6px; text-align:left;">Player</th><th style="padding:6px;">Score</th><th style="padding:6px;">Level</th></tr>';
+  board.slice(0,10).forEach((row,i)=>{
     const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1);
-    html += `<tr style="border-bottom:1px solid #2a2f6a;">
-      <td style="padding:8px;">${medal}</td>
-      <td style="padding:8px; text-align:left;">${row.username}</td>
-      <td style="padding:8px; font-weight:bold; color:var(--accent);">${row.best_score}</td>
-      <td style="padding:8px;">${row.highest_level}</td>
-    </tr>`;
+    html += `<tr style="border-bottom:1px solid #2a2f6a;"><td style="padding:6px;">${medal}</td><td style="padding:6px; text-align:left;">${row.username}</td><td style="padding:6px; font-weight:bold; color:var(--accent);">${row.best_score}</td><td style="padding:6px;">${row.highest_level}</td></tr>`;
   });
   html += '</table>';
-  $('leaderboardList').innerHTML = html;
+  $('lbModalList').innerHTML = html;
 }
 
 /* ---------- DRAW ---------- */
@@ -1572,11 +1682,11 @@ renderQuestion();
 updateHUD();
 
 /* ---------- PWA: Register Service Worker ---------- */
-if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('./sw.js').catch(err=>console.log('SW failed:', err));
-  });
-}
+// if('serviceWorker' in navigator){
+//   window.addEventListener('load', ()=>{
+//     navigator.serviceWorker.register('./sw.js').catch(err=>console.log('SW failed:', err));
+//   });
+// }
 
 /* ---------- CLERK AUTH ---------- */
 // Clerk is loaded via script tags below.
@@ -1655,22 +1765,57 @@ window.addEventListener('load', async function(){
   }, 500);
 });
 
+let playerSaved = false;
+
 function updateAuthUI(){
   if(Clerk.isSignedIn){
+    // Save the player to the DB once per sign-in (guard against the poll loop)
+    if(!playerSaved){
+      playerSaved = true;   // set before the await so rapid poll ticks can't double-fire
+      savePlayer();
+    }
     // Show the game
     document.getElementById('authScreen').style.display = 'none';
     document.getElementById('game').style.display = 'flex';
+    document.getElementById('game').style.flexDirection = 'column';
     // Mount user button
     const userBtnDiv = document.getElementById('clerk-user-button');
     userBtnDiv.innerHTML = '';
     Clerk.mountUserButton(userBtnDiv);
   } else {
+    playerSaved = false;    // reset so a future sign-in saves again
     // Show sign-in screen
     document.getElementById('game').style.display = 'none';
     document.getElementById('authScreen').style.display = 'flex';
     const signInDiv = document.getElementById('clerk-sign-in');
     signInDiv.innerHTML = '';
-    Clerk.mountSignIn(signInDiv);
+    Clerk.mountSignIn(signInDiv, {
+      fallbackRedirectUrl: '/',
+      signUpFallbackRedirectUrl: '/'
+    });
+  }
+}
+
+async function savePlayer(){
+  const token = await getClerkToken();
+  if(!token){ playerSaved = false; return; }   // not actually signed in — allow a retry
+  try {
+    const res = await fetch('/api/players', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if(data.success){
+      console.log('✅ Player saved to DB!');
+      if(typeof data.currentLevel === 'number' && data.currentLevel >= 1){
+        state.round = data.currentLevel;
+        updateHUD();
+        renderQuestion();
+      }
+    }
+  } catch(e) {
+    console.error('Failed to save player:', e);
+    playerSaved = false;   // failed fetch — re-arm so the next poll tick retries
   }
 }
 </script>

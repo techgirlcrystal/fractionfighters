@@ -73,12 +73,18 @@ app.post('/api/scores', async (req, res) => {
     const avatarUrl = clerkUser.imageUrl || null;
 
     // Upsert player
-    await sql`
-      INSERT INTO players (clerk_id, username, email, avatar_url)
-      VALUES (${user.sub}, ${username}, ${email}, ${avatarUrl})
+    console.log('[scores] upserting player', { clerkId: user.sub, incomingLevel: level });
+    const upsertRows = await sql`
+      INSERT INTO players (clerk_id, username, email, avatar_url, current_level)
+      VALUES (${user.sub}, ${username}, ${email}, ${avatarUrl}, ${level})
       ON CONFLICT (clerk_id)
-      DO UPDATE SET username = ${username}, email = ${email}, avatar_url = ${avatarUrl}
+      DO UPDATE SET username = ${username},
+                    email = ${email},
+                    avatar_url = ${avatarUrl},
+                    current_level = GREATEST(players.current_level, ${level})
+      RETURNING current_level
     `;
+    console.log('[scores] upsert done — stored current_level =', upsertRows[0]?.current_level);
 
     // Insert score
     await sql`
@@ -90,6 +96,41 @@ app.post('/api/scores', async (req, res) => {
   } catch (err) {
     console.error('Save score error:', err);
     res.status(500).json({ error: 'Failed to save score' });
+  }
+});
+
+// ============================================================
+// API: Upsert the signed-in player (requires auth)
+// POST /api/players  — player record only, no score
+// ============================================================
+app.post('/api/players', async (req, res) => {
+  try {
+    const user = await getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+    // Fetch user info from Clerk
+    const clerkUser = await clerkClient.users.getUser(user.sub);
+    const username = clerkUser.username ||
+      clerkUser.firstName ||
+      clerkUser.emailAddresses[0]?.emailAddress?.split('@')[0] ||
+      'Player';
+    const email = clerkUser.emailAddresses[0]?.emailAddress || null;
+    const avatarUrl = clerkUser.imageUrl || null;
+
+    // Upsert player
+    const rows = await sql`
+      INSERT INTO players (clerk_id, username, email, avatar_url)
+      VALUES (${user.sub}, ${username}, ${email}, ${avatarUrl})
+      ON CONFLICT (clerk_id)
+      DO UPDATE SET username = ${username}, email = ${email}, avatar_url = ${avatarUrl}
+      RETURNING current_level
+    `;
+    const currentLevel = rows[0]?.current_level ?? 1;
+
+    res.json({ success: true, message: 'Player saved!', currentLevel });
+  } catch (err) {
+    console.error('Save player error:', err);
+    res.status(500).json({ error: 'Failed to save player' });
   }
 });
 
