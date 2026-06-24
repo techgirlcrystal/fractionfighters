@@ -7,5 +7,5 @@
 // Your SECRET key (sk_) is in .env and is NEVER put here.
 // ============================================================
 
-window.CLERK_PUBLISHABLE_KEY = "pk_test_bmF0aXZlLXNwb25nZS00NC5jbGVyay5hY2NvdW50cy5kZXYk";
+window.CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsuZmlnaHRpbmdmcmF0aW9ucy54YXV0aW1hcmtldGluZ2FpLmNvbSQ";
 
