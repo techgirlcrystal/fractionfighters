@@ -1,0 +1,18 @@
+{
+  "name": "fraction-fighters",
+  "version": "1.0.0",
+  "description": "A 6th-grade fraction math game with stick figure boss battles",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@clerk/backend": "^3.8.2",
+    "@neondatabase/serverless": "^1.1.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "sharp": "^0.35.2"
+  }
+}
