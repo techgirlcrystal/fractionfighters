@@ -609,6 +609,9 @@
     <canvas id="pencilCanvas" width="600" height="320"></canvas>
     <div style="text-align:center; color:var(--muted); font-size:13px; margin-top:8px;">Hold <b>BACKSPACE</b> to charge power, release to snap the pencil!</div>
     <div class="feedback" id="pencilFeedback"></div>
+    <div class="touch-controls" id="pencilControls">
+      <button class="touch-btn jump" id="pencilChargeBtn" aria-label="Hold to charge" style="min-width:220px;">💪 Hold to Charge</button>
+    </div>
   </div>
 
   <div id="paperPhase" class="hidden">
@@ -616,6 +619,11 @@
     <canvas id="paperCanvas" width="600" height="320"></canvas>
     <div style="text-align:center; color:var(--muted); font-size:13px; margin-top:8px;">◀ ▶ Aim &nbsp;|&nbsp; SPACE Throw &nbsp;|&nbsp; Land 3 in the trash to win!</div>
     <div class="feedback" id="paperFeedback"></div>
+    <div class="touch-controls" id="paperControls">
+      <button class="touch-btn" id="paperLeftBtn" aria-label="Aim left">◀</button>
+      <button class="touch-btn punch" id="paperThrowBtn" aria-label="Hold to throw" style="min-width:140px;">🎯 Throw</button>
+      <button class="touch-btn" id="paperRightBtn" aria-label="Aim right">▶</button>
+    </div>
   </div>
 
   <div id="tetrisPhase" class="hidden">
@@ -623,6 +631,12 @@
     <canvas id="tetrisCanvas" width="300" height="600" style="max-width:300px;"></canvas>
     <div style="text-align:center; color:var(--muted); font-size:13px; margin-top:8px;">◀ ▶ Move &nbsp;|&nbsp; ▲ Rotate &nbsp;|&nbsp; ▼ Drop &nbsp;|&nbsp; Survive 2 min or clear 10 lines!</div>
     <div class="feedback" id="tetrisFeedback"></div>
+    <div class="touch-controls" id="tetrisControls">
+      <button class="touch-btn" id="tetrisLeftBtn" aria-label="Move left">◀</button>
+      <button class="touch-btn jump" id="tetrisRotateBtn" aria-label="Rotate">🔄</button>
+      <button class="touch-btn" id="tetrisDropBtn" aria-label="Soft drop">▼</button>
+      <button class="touch-btn" id="tetrisRightBtn" aria-label="Move right">▶</button>
+    </div>
   </div>
 
   <div id="bubblesPhase" class="hidden">
@@ -1199,6 +1213,27 @@ function bindTapButton(btn, onTap) {
     onTap();
   });
 }
+function bindRepeatButton(btn, action, intervalMs = 120) {
+  let interval = null;
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch {}
+    btn.classList.add('hold-active');
+    if (navigator.vibrate) navigator.vibrate(10);
+    action();
+    interval = setInterval(action, intervalMs);
+  });
+  const release = (e) => {
+    if (interval == null) return;
+    clearInterval(interval);
+    interval = null;
+    btn.classList.remove('hold-active');
+    try { btn.releasePointerCapture(e.pointerId); } catch {}
+  };
+  btn.addEventListener('pointerup', release);
+  btn.addEventListener('pointercancel', release);
+  btn.addEventListener('lostpointercapture', release);
+}
 
 // Stick Boss Fight touch controls
 bindHoldButton($('fightLeftBtn'),  () => { keys['ArrowLeft']  = true;  },
@@ -1208,6 +1243,20 @@ bindHoldButton($('fightRightBtn'), () => { keys['ArrowRight'] = true;  },
 bindHoldButton($('fightJumpBtn'),  () => { keys['ArrowUp']    = true;  },
                                    () => { keys['ArrowUp']    = false; });
 bindTapButton($('fightPunchBtn'), fightPunch);
+
+// Pencil Break touch control
+bindHoldButton($('pencilChargeBtn'), pencilChargeStart, pencilChargeEnd);
+
+// Paper Toss touch controls
+bindRepeatButton($('paperLeftBtn'),  paperAimLeft);
+bindRepeatButton($('paperRightBtn'), paperAimRight);
+bindHoldButton($('paperThrowBtn'),   paperThrowStart, paperThrowEnd);
+
+// Tetris touch controls
+bindRepeatButton($('tetrisLeftBtn'),  tetrisMoveLeft);
+bindRepeatButton($('tetrisRightBtn'), tetrisMoveRight);
+bindRepeatButton($('tetrisDropBtn'),  tetrisSoftDrop);
+bindTapButton($('tetrisRotateBtn'),   tetrisRotate);
 
 function tryPlayerHit(){
   const dist = Math.abs(player.x - boss.x);
@@ -1879,31 +1928,37 @@ function startPencilBreak(){
   pencilAnim = requestAnimationFrame(pencilLoop);
 }
 
+function pencilChargeStart() {
+  if (pencilDone || $('pencilPhase').classList.contains('hidden')) return;
+  pencilCharging = true;
+}
+function pencilChargeEnd() {
+  if (!pencilCharging || pencilDone) return;
+  pencilCharging = false;
+  if (pencilPower >= 70) {
+    pencilDone = true;
+    $('pencilFeedback').textContent = '✏️💥 SNAP! Pencil broken! +50 points!';
+    $('pencilFeedback').className = 'feedback good';
+    $('pencilProg').style.width = '100%';
+    setTimeout(winActivity, 1500);
+  } else {
+    pencilDone = true;
+    $('pencilFeedback').textContent = `Not enough power (${Math.floor(pencilPower)}%). You needed 70%!`;
+    $('pencilFeedback').className = 'feedback bad';
+    setTimeout(() => loseActivity("The pencil didn't break!"), 1500);
+  }
+}
+
 window.addEventListener('keydown', e=>{
   if($('pencilPhase').classList.contains('hidden')) return;
   if(e.key === 'Backspace'){
     e.preventDefault();
-    if(!pencilDone) pencilCharging = true;
+    pencilChargeStart();
   }
 });
 window.addEventListener('keyup', e=>{
   if($('pencilPhase').classList.contains('hidden')) return;
-  if(e.key === 'Backspace' && pencilCharging && !pencilDone){
-    pencilCharging = false;
-    // release — try to break
-    if(pencilPower >= 70){
-      pencilDone = true;
-      $('pencilFeedback').textContent = '✏️💥 SNAP! Pencil broken! +50 points!';
-      $('pencilFeedback').className = 'feedback good';
-      $('pencilProg').style.width = '100%';
-      setTimeout(winActivity, 1500);
-    } else {
-      pencilDone = true;
-      $('pencilFeedback').textContent = `Not enough power (${Math.floor(pencilPower)}%). You needed 70%!`;
-      $('pencilFeedback').className = 'feedback bad';
-      setTimeout(()=>loseActivity('The pencil didn\'t break!'), 1500);
-    }
-  }
+  if(e.key === 'Backspace') pencilChargeEnd();
 });
 
 function pencilLoop(){
@@ -1973,34 +2028,43 @@ function startPaperToss(){
   paperAnim = requestAnimationFrame(paperLoop);
 }
 
+function paperAimLeft() {
+  if (!paperState || paperState.done) return;
+  paperState.angle = Math.max(10, paperState.angle - 3);
+}
+function paperAimRight() {
+  if (!paperState || paperState.done) return;
+  paperState.angle = Math.min(85, paperState.angle + 3);
+}
+function paperThrowStart() {
+  if (!paperState || paperState.done || paperState.flying) return;
+  paperState.charging = true;
+}
+function paperThrowEnd() {
+  if (!paperState || paperState.done || !paperState.charging || paperState.flying) return;
+  paperState.charging = false;
+  const power = paperState.power;
+  const rad = paperState.angle * Math.PI / 180;
+  paperState.ball = {
+    x: 80, y: 260,
+    vx: Math.cos(rad) * power * 0.15,
+    vy: -Math.sin(rad) * power * 0.15
+  };
+  paperState.flying = true;
+  paperState.power = 0;
+  paperState.chances--;
+  $('paperChances').textContent = paperState.chances;
+}
+
 window.addEventListener('keydown', e=>{
   if($('paperPhase').classList.contains('hidden')) return;
-  if(paperState && paperState.done) return;
-  if(e.key === 'ArrowLeft') paperState.angle = Math.max(10, paperState.angle - 3);
-  if(e.key === 'ArrowRight') paperState.angle = Math.min(85, paperState.angle + 3);
-  if(e.key === ' ' && !paperState.flying){
-    e.preventDefault();
-    paperState.charging = true;
-  }
+  if(e.key === 'ArrowLeft')  paperAimLeft();
+  if(e.key === 'ArrowRight') paperAimRight();
+  if(e.key === ' '){ e.preventDefault(); paperThrowStart(); }
 });
 window.addEventListener('keyup', e=>{
   if($('paperPhase').classList.contains('hidden')) return;
-  if(paperState && paperState.done) return;
-  if(e.key === ' ' && paperState.charging && !paperState.flying){
-    paperState.charging = false;
-    // launch
-    const power = paperState.power;
-    const rad = paperState.angle * Math.PI / 180;
-    paperState.ball = {
-      x: 80, y: 260,
-      vx: Math.cos(rad) * power * 0.15,
-      vy: -Math.sin(rad) * power * 0.15
-    };
-    paperState.flying = true;
-    paperState.power = 0;
-    paperState.chances--;
-    $('paperChances').textContent = paperState.chances;
-  }
+  if(e.key === ' ') paperThrowEnd();
 });
 
 function paperLoop(){
@@ -2163,17 +2227,31 @@ function rotate(piece){
   return out;
 }
 
+function tetrisMoveLeft() {
+  if (!tState || tState.done) return;
+  if (!collides(tState.piece, tState.px - 1, tState.py)) tState.px--;
+}
+function tetrisMoveRight() {
+  if (!tState || tState.done) return;
+  if (!collides(tState.piece, tState.px + 1, tState.py)) tState.px++;
+}
+function tetrisSoftDrop() {
+  if (!tState || tState.done) return;
+  if (!collides(tState.piece, tState.px, tState.py + 1)) tState.py++;
+}
+function tetrisRotate() {
+  if (!tState || tState.done) return;
+  const r = rotate(tState.piece);
+  if (!collides(r, tState.px, tState.py)) tState.piece = r;
+}
+
 window.addEventListener('keydown', e=>{
   if($('tetrisPhase').classList.contains('hidden')) return;
-  if(tState && tState.done) return;
-  if(e.key === 'ArrowLeft' && !collides(tState.piece, tState.px-1, tState.py)) tState.px--;
-  if(e.key === 'ArrowRight' && !collides(tState.piece, tState.px+1, tState.py)) tState.px++;
-  if(e.key === 'ArrowDown' && !collides(tState.piece, tState.px, tState.py+1)) tState.py++;
-  if(e.key === 'ArrowUp'){
-    const r = rotate(tState.piece);
-    if(!collides(r, tState.px, tState.py)) tState.piece = r;
-  }
   if(['ArrowLeft','ArrowRight','ArrowDown','ArrowUp',' '].includes(e.key)) e.preventDefault();
+  if(e.key === 'ArrowLeft')  tetrisMoveLeft();
+  if(e.key === 'ArrowRight') tetrisMoveRight();
+  if(e.key === 'ArrowDown')  tetrisSoftDrop();
+  if(e.key === 'ArrowUp')    tetrisRotate();
 });
 
 function tetrisLoop(ts){
