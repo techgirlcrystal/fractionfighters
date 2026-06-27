@@ -225,6 +225,64 @@
   #loomModal .modal-content { max-width: 720px; }
   .loom-embed { position: relative; padding-bottom: 56.25%; height: 0; margin: 14px 0; }
   .loom-embed iframe { position: absolute; top:0; left:0; width:100%; height:100%; border:0; border-radius: 8px; }
+
+  /* Floating calculator */
+  .calc-panel {
+    position: fixed;
+    width: 240px;
+    background: var(--panel);
+    border: 3px solid #3a3f7a;
+    border-radius: 12px;
+    z-index: 90;
+    display: none;
+    flex-direction: column;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    user-select: none;
+  }
+  .calc-panel.show { display: flex; }
+  .calc-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px;
+    background: #2a2f5e;
+    border-radius: 9px 9px 0 0;
+    cursor: grab;
+    touch-action: none;
+    font-size: 13px;
+    color: var(--accent);
+  }
+  .calc-header.dragging { cursor: grabbing; }
+  .calc-close {
+    background: transparent; border: 0; color: var(--text);
+    font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px;
+  }
+  .calc-display {
+    background: #0b0e1f;
+    color: var(--text);
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 22px;
+    text-align: right;
+    padding: 10px 12px;
+    margin: 8px;
+    border-radius: 6px;
+    min-height: 28px;
+    word-break: break-all;
+  }
+  .calc-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    padding: 0 8px 10px;
+  }
+  .calc-btn {
+    background: #2a2f5e; color: var(--text);
+    border: 0; border-radius: 6px;
+    padding: 12px 0; font-size: 16px;
+    cursor: pointer; touch-action: manipulation;
+  }
+  .calc-btn:active { transform: translateY(1px); }
+  .calc-btn.op { background: var(--accent); color: #1b2046; font-weight: 700; }
+  .calc-btn.eq { grid-row: span 2; background: var(--good); color: #0b0e1f; font-weight: 700; font-size: 22px; }
+  .calc-btn.zero { grid-column: span 2; }
 </style>
 </head>
 <body>
@@ -252,6 +310,7 @@
     <div style="text-align:center; color:var(--muted); font-size:13px; margin-bottom:10px;">Win: <b id="activityName">Stick Boss Fight</b></div>
     <div style="text-align:center; margin-bottom:12px;">
       <button class="btn secondary" id="showMeHowBtn" style="font-size:13px; padding:6px 14px;">Show Me How Lady Hale</button>
+      <button class="btn secondary" id="calcToggleBtn" style="font-size:13px; padding:6px 14px;">🧮 Calculator</button>
     </div>
 
     <div class="question" id="question"></div>
@@ -369,6 +428,34 @@
         <iframe id="loomFrame" src="" allowfullscreen></iframe>
       </div>
       <button class="btn" id="closeLoomModalBtn" style="margin:0 auto;">Close</button>
+    </div>
+  </div>
+  <!-- Floating Calculator -->
+  <div class="calc-panel" id="calcPanel">
+    <div class="calc-header" id="calcHeader">
+      <span>🧮 Calculator</span>
+      <button class="calc-close" id="calcCloseBtn" aria-label="Close calculator">×</button>
+    </div>
+    <div class="calc-display" id="calcDisplay">0</div>
+    <div class="calc-grid">
+      <button class="calc-btn"    data-calc="C">C</button>
+      <button class="calc-btn op" data-calc="÷">÷</button>
+      <button class="calc-btn op" data-calc="×">×</button>
+      <button class="calc-btn"    data-calc="⌫">⌫</button>
+      <button class="calc-btn" data-calc="7">7</button>
+      <button class="calc-btn" data-calc="8">8</button>
+      <button class="calc-btn" data-calc="9">9</button>
+      <button class="calc-btn op" data-calc="-">-</button>
+      <button class="calc-btn" data-calc="4">4</button>
+      <button class="calc-btn" data-calc="5">5</button>
+      <button class="calc-btn" data-calc="6">6</button>
+      <button class="calc-btn op" data-calc="+">+</button>
+      <button class="calc-btn" data-calc="1">1</button>
+      <button class="calc-btn" data-calc="2">2</button>
+      <button class="calc-btn" data-calc="3">3</button>
+      <button class="calc-btn eq" data-calc="=">=</button>
+      <button class="calc-btn zero" data-calc="0">0</button>
+      <button class="calc-btn" data-calc=".">.</button>
     </div>
   </div>
 </div>
@@ -1856,6 +1943,133 @@ async function savePlayer(){
     playerSaved = false;   // failed fetch — re-arm so the next poll tick retries
   }
 }
+
+// ===== Floating Calculator =====
+const CALC = { current:'0', prev:null, op:null, justEvaluated:false };
+const calcPanel   = $('calcPanel');
+const calcHeader  = $('calcHeader');
+const calcDisplay = $('calcDisplay');
+const CALC_STORAGE_KEY = 'ff_calc_v1';
+
+function calcRender(){ calcDisplay.textContent = CALC.current; }
+function calcLoadStorage(){
+  try { return JSON.parse(localStorage.getItem(CALC_STORAGE_KEY) || '{}'); } catch(e){ return {}; }
+}
+function calcSaveState(){
+  const s = calcLoadStorage(); s.current = CALC.current;
+  localStorage.setItem(CALC_STORAGE_KEY, JSON.stringify(s));
+}
+function calcSavePos(left, top){
+  const s = calcLoadStorage(); s.left = left; s.top = top;
+  localStorage.setItem(CALC_STORAGE_KEY, JSON.stringify(s));
+}
+function calcCompute(a, op, b){
+  if(op==='+') return a + b;
+  if(op==='-') return a - b;
+  if(op==='×') return a * b;
+  if(op==='÷') return b === 0 ? null : a / b;
+  return b;
+}
+function calcFormat(n){
+  if(n === null || !isFinite(n)) return 'Error';
+  return parseFloat(n.toFixed(10)).toString();
+}
+function calcReset(){
+  CALC.current='0'; CALC.prev=null; CALC.op=null; CALC.justEvaluated=false;
+  calcRender(); calcSaveState();
+}
+function calcInput(key){
+  if(CALC.current === 'Error' && key !== 'C') { calcReset(); }
+  if(/^[0-9]$/.test(key)){
+    if(CALC.justEvaluated){ CALC.current = key; CALC.justEvaluated = false; }
+    else if(CALC.current === '0') CALC.current = key;
+    else CALC.current += key;
+  } else if(key === '.'){
+    if(CALC.justEvaluated){ CALC.current = '0.'; CALC.justEvaluated = false; }
+    else if(!CALC.current.includes('.')) CALC.current += '.';
+  } else if(key === '⌫'){
+    if(CALC.justEvaluated){ calcReset(); return; }
+    CALC.current = CALC.current.length > 1 ? CALC.current.slice(0, -1) : '0';
+  } else if(key === 'C'){
+    calcReset(); return;
+  } else if(key === '+' || key === '-' || key === '×' || key === '÷'){
+    const n = parseFloat(CALC.current);
+    if(CALC.op !== null && CALC.prev !== null && !CALC.justEvaluated){
+      const r = calcCompute(CALC.prev, CALC.op, n);
+      CALC.current = calcFormat(r);
+      CALC.prev = (r === null) ? null : r;
+    } else {
+      CALC.prev = n;
+    }
+    CALC.op = key;
+    CALC.justEvaluated = true;
+  } else if(key === '='){
+    if(CALC.op === null || CALC.prev === null) return;
+    const n = parseFloat(CALC.current);
+    const r = calcCompute(CALC.prev, CALC.op, n);
+    CALC.current = calcFormat(r);
+    CALC.prev = null; CALC.op = null; CALC.justEvaluated = true;
+  }
+  calcRender(); calcSaveState();
+}
+
+function calcRestore(){
+  const s = calcLoadStorage();
+  if(typeof s.current === 'string') CALC.current = s.current;
+  calcRender();
+  const w = calcPanel.offsetWidth || 240;
+  const h = calcPanel.offsetHeight || 360;
+  let left = (typeof s.left === 'number') ? s.left : (window.innerWidth - w - 16);
+  let top  = (typeof s.top  === 'number') ? s.top  : 100;
+  left = Math.max(0, Math.min(left, window.innerWidth  - w));
+  top  = Math.max(0, Math.min(top,  window.innerHeight - h));
+  calcPanel.style.left = left + 'px';
+  calcPanel.style.top  = top  + 'px';
+}
+
+$('calcToggleBtn').addEventListener('click', () => {
+  if(calcPanel.classList.contains('show')){ calcPanel.classList.remove('show'); return; }
+  calcPanel.classList.add('show');
+  calcRestore();
+});
+$('calcCloseBtn').addEventListener('click', () => calcPanel.classList.remove('show'));
+
+calcPanel.querySelector('.calc-grid').addEventListener('click', e => {
+  const key = e.target.getAttribute('data-calc');
+  if(key) calcInput(key);
+});
+
+// Drag with Pointer Events (mouse + touch unified)
+let calcDrag = null;
+calcHeader.addEventListener('pointerdown', e => {
+  if(e.target.id === 'calcCloseBtn') return;
+  const r = calcPanel.getBoundingClientRect();
+  calcDrag = { offX: e.clientX - r.left, offY: e.clientY - r.top };
+  calcHeader.classList.add('dragging');
+  calcHeader.setPointerCapture(e.pointerId);
+});
+calcHeader.addEventListener('pointermove', e => {
+  if(!calcDrag) return;
+  e.preventDefault();
+  const w = calcPanel.offsetWidth, h = calcPanel.offsetHeight;
+  const left = Math.max(0, Math.min(e.clientX - calcDrag.offX, window.innerWidth  - w));
+  const top  = Math.max(0, Math.min(e.clientY - calcDrag.offY, window.innerHeight - h));
+  calcPanel.style.left = left + 'px';
+  calcPanel.style.top  = top  + 'px';
+});
+calcHeader.addEventListener('pointerup', e => {
+  if(!calcDrag) return;
+  calcDrag = null;
+  calcHeader.classList.remove('dragging');
+  calcHeader.releasePointerCapture(e.pointerId);
+  const r = calcPanel.getBoundingClientRect();
+  calcSavePos(r.left, r.top);
+});
+
+// Auto-hide calc when math phase ends (reuses existing `mathPhase` const)
+new MutationObserver(() => {
+  if(mathPhase.classList.contains('hidden')) calcPanel.classList.remove('show');
+}).observe(mathPhase, { attributes: true, attributeFilter: ['class'] });
 </script>
 
 <!-- Clerk config (publishable key) -->
