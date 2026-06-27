@@ -874,7 +874,7 @@ const $ = id => document.getElementById(id);
    undefined → keep relative URLs exactly as before.
    Use apiUrl('/api/...') for every backend fetch — one helper, reused. */
 const API_BASE = (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())
-  ? 'https://fightingfrations.xautimarketingai.com'
+  ? 'https://fightingfractions.xautimarketingai.com'
   : '';
 const apiUrl = path => `${API_BASE}${path}`;
 const mathPhase = $('mathPhase');
