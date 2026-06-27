@@ -664,7 +664,8 @@
   <div id="endPhase" class="hidden" style="text-align:center;">
     <h2 id="endTitle"></h2>
     <p id="endMsg" style="margin:12px 0; color:var(--muted);"></p>
-    <button class="btn" id="restartBtn">Try Again</button>
+    <button class="btn" id="restartBtn">Try Math Again</button>
+    <button class="btn secondary" id="endPlayAgainBtn" style="font-size:14px; padding:8px 18px;">🎮 Play Game Again</button>
     <button class="btn secondary" id="continueBtn" style="font-size:14px; padding:8px 18px;">Continue to Next Level ▶</button>
     <div id="endLeaderboardPanel" style="margin-top:18px;"></div>
   </div>
@@ -1386,11 +1387,13 @@ $('nextLevelBtn').addEventListener('click', ()=>{
   }
 });
 
-$('playAgainBtn').addEventListener('click', ()=>{
+function replayMiniGame() {
   // Replay just the mini-game for the current level — no math, no level change
   document.querySelectorAll('[id$="Phase"]').forEach(el=>el.classList.add('hidden'));
   startActivity();
-});
+}
+$('playAgainBtn').addEventListener('click', replayMiniGame);
+$('endPlayAgainBtn').addEventListener('click', replayMiniGame);
 
 function loseFight(){
   fightActive = false;
