@@ -864,6 +864,19 @@ const state = {
 
 /* ---------- DOM ---------- */
 const $ = id => document.getElementById(id);
+
+/* ---------- API BASE (Capacitor-aware) ----------
+   In the native iOS/Android app the page loads from capacitor://localhost,
+   so a relative '/api/...' would hit the device itself, not our server.
+   Capacitor's native runtime injects a global `window.Capacitor`; its
+   isNativePlatform() is the same check @capacitor/core exposes. When native,
+   point API calls at the live backend. In a normal browser Capacitor is
+   undefined → keep relative URLs exactly as before.
+   Use apiUrl('/api/...') for every backend fetch — one helper, reused. */
+const API_BASE = (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())
+  ? 'https://fightingfrations.xautimarketingai.com'
+  : '';
+const apiUrl = path => `${API_BASE}${path}`;
 const mathPhase = $('mathPhase');
 const fightPhase = $('fightPhase');
 const endPhase = $('endPhase');
@@ -1096,7 +1109,7 @@ async function saveScore(levelOverride){
   }
   const level = (typeof levelOverride === 'number') ? levelOverride : state.round;
   try {
-    const res = await fetch('/api/scores', {
+    const res = await fetch(apiUrl('/api/scores'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1113,7 +1126,7 @@ async function saveScore(levelOverride){
 
 async function loadLeaderboard(){
   try {
-    const res = await fetch('/api/leaderboard');
+    const res = await fetch(apiUrl('/api/leaderboard'));
     const data = await res.json();
     return Array.isArray(data) ? data : [];
   } catch(e) {
@@ -2689,7 +2702,7 @@ async function savePlayer(){
   const token = await getClerkToken();
   if(!token){ playerSaved = false; return; }   // not actually signed in — allow a retry
   try {
-    const res = await fetch('/api/players', {
+    const res = await fetch(apiUrl('/api/players'), {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` }
     });

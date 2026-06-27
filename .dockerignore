@@ -5,3 +5,8 @@ npm-debug.log
 .env
 .env.local
 *.md
+
+# Capacitor native projects — not needed in the server image
+ios
+android
+capacitor.config.json

@@ -8,3 +8,27 @@ node_modules/
 .env.production
 credentials.json
 token.json
+
+# Capacitor — native build artifacts (keep source folders, ignore generated)
+# iOS
+ios/App/Pods/
+ios/App/Podfile.lock
+ios/App/build/
+ios/App/output/
+ios/App/App/public/
+DerivedData/
+*.xcuserstate
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/captures/
+android/.idea/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/res/raw/
+*.iml
+
+# Capacitor CLI
+.capacitor/
