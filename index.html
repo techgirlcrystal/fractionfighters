@@ -226,8 +226,8 @@
   .loom-embed { position: relative; padding-bottom: 56.25%; height: 0; margin: 14px 0; }
   .loom-embed iframe { position: absolute; top:0; left:0; width:100%; height:100%; border:0; border-radius: 8px; }
 
-  /* Floating calculator */
-  .calc-panel {
+  /* Floating panel shell (calculator, times chart, etc.) */
+  .float-panel {
     position: fixed;
     width: 240px;
     background: var(--panel);
@@ -239,8 +239,8 @@
     box-shadow: 0 8px 24px rgba(0,0,0,.5);
     user-select: none;
   }
-  .calc-panel.show { display: flex; }
-  .calc-header {
+  .float-panel.show { display: flex; }
+  .float-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 8px 12px;
     background: #2a2f5e;
@@ -250,8 +250,8 @@
     font-size: 13px;
     color: var(--accent);
   }
-  .calc-header.dragging { cursor: grabbing; }
-  .calc-close {
+  .float-header.dragging { cursor: grabbing; }
+  .float-close {
     background: transparent; border: 0; color: var(--text);
     font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px;
   }
@@ -283,6 +283,28 @@
   .calc-btn.op { background: var(--accent); color: #1b2046; font-weight: 700; }
   .calc-btn.eq { grid-row: span 2; background: var(--good); color: #0b0e1f; font-weight: 700; font-size: 22px; }
   .calc-btn.zero { grid-column: span 2; }
+
+  /* Times chart */
+  #chartPanel { width: 320px; }
+  .chart-grid {
+    display: grid;
+    grid-template-columns: repeat(13, 1fr);
+    gap: 1px;
+    padding: 6px;
+    background: #0b0e1f;
+    margin: 8px;
+    border-radius: 6px;
+  }
+  .chart-cell {
+    background: var(--panel);
+    color: var(--text);
+    text-align: center;
+    font-size: 11px;
+    padding: 4px 0;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .chart-cell.header { background: var(--accent); color: #1b2046; font-weight: 700; }
+  .chart-cell.corner { background: #2a2f5e; }
 </style>
 </head>
 <body>
@@ -311,6 +333,7 @@
     <div style="text-align:center; margin-bottom:12px;">
       <button class="btn secondary" id="showMeHowBtn" style="font-size:13px; padding:6px 14px;">Show Me How Lady Hale</button>
       <button class="btn secondary" id="calcToggleBtn" style="font-size:13px; padding:6px 14px;">🧮 Calculator</button>
+      <button class="btn secondary" id="chartToggleBtn" style="font-size:13px; padding:6px 14px; display:none;">📊 Times Chart</button>
     </div>
 
     <div class="question" id="question"></div>
@@ -437,10 +460,10 @@
     </div>
   </div>
   <!-- Floating Calculator -->
-  <div class="calc-panel" id="calcPanel">
-    <div class="calc-header" id="calcHeader">
+  <div class="float-panel" id="calcPanel">
+    <div class="float-header" id="calcHeader">
       <span>🧮 Calculator</span>
-      <button class="calc-close" id="calcCloseBtn" aria-label="Close calculator">×</button>
+      <button class="float-close" id="calcCloseBtn" aria-label="Close calculator">×</button>
     </div>
     <div class="calc-display" id="calcDisplay">0</div>
     <div class="calc-grid">
@@ -463,6 +486,14 @@
       <button class="calc-btn zero" data-calc="0">0</button>
       <button class="calc-btn" data-calc=".">.</button>
     </div>
+  </div>
+  <!-- Times Chart (Improper→Proper only) -->
+  <div class="float-panel" id="chartPanel">
+    <div class="float-header" id="chartHeader">
+      <span>📊 Times Chart (1-12)</span>
+      <button class="float-close" id="chartCloseBtn" aria-label="Close chart">×</button>
+    </div>
+    <div class="chart-grid" id="chartGrid"></div>
   </div>
 </div>
 
@@ -493,6 +524,7 @@ const LOOM_VIDEOS = {
   'Subtraction':    'f77a281e7c774ec89c36485975145fde',
   'Multiplication': '7919be9b5af040f798f52e3e984e89cd',
   'Division':       'b96204c1038c41b59128344505d1dbe9',
+  'Improper→Proper':'8e56825bc704456ca8f375b1b5a98ed6',
 };
 
 function currentLevel(){ return LEVELS[(state.round-1) % LEVELS.length]; }
@@ -706,6 +738,7 @@ function updateHUD(){
   $('levelOp').textContent = levelName(state.round);
   $('activityName').textContent = activityName(state.round);
   $('showMeHowBtn').style.display = LOOM_VIDEOS[currentLevel().name] ? '' : 'none';
+  $('chartToggleBtn').style.display = (currentLevel().op === 'imp') ? '' : 'none';
   $('progBar').style.width = Math.min(100, state.streak*20) + '%';
 }
 
@@ -1980,12 +2013,80 @@ async function savePlayer(){
   }
 }
 
+// ===== Generic draggable floating panel =====
+function makeDraggable({ panel, header, storageKey, defaultLeft, defaultTop }) {
+  function loadPos() {
+    try { return JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch { return {}; }
+  }
+  function savePos(left, top) {
+    localStorage.setItem(storageKey, JSON.stringify({ left, top }));
+  }
+  function restore() {
+    const s = loadPos();
+    const w = panel.offsetWidth  || 240;
+    const h = panel.offsetHeight || 360;
+    let left = (typeof s.left === 'number') ? s.left : defaultLeft;
+    let top  = (typeof s.top  === 'number') ? s.top  : defaultTop;
+    left = Math.max(0, Math.min(left, window.innerWidth  - w));
+    top  = Math.max(0, Math.min(top,  window.innerHeight - h));
+    panel.style.left = left + 'px';
+    panel.style.top  = top  + 'px';
+  }
+  let drag = null;
+  header.addEventListener('pointerdown', e => {
+    if (e.target.classList.contains('float-close')) return;
+    const r = panel.getBoundingClientRect();
+    drag = { offX: e.clientX - r.left, offY: e.clientY - r.top };
+    header.classList.add('dragging');
+    header.setPointerCapture(e.pointerId);
+  });
+  header.addEventListener('pointermove', e => {
+    if (!drag) return;
+    e.preventDefault();
+    const w = panel.offsetWidth, h = panel.offsetHeight;
+    const left = Math.max(0, Math.min(e.clientX - drag.offX, window.innerWidth  - w));
+    const top  = Math.max(0, Math.min(e.clientY - drag.offY, window.innerHeight - h));
+    panel.style.left = left + 'px';
+    panel.style.top  = top  + 'px';
+  });
+  header.addEventListener('pointerup', e => {
+    if (!drag) return;
+    drag = null;
+    header.classList.remove('dragging');
+    header.releasePointerCapture(e.pointerId);
+    const r = panel.getBoundingClientRect();
+    savePos(r.left, r.top);
+  });
+  return { restore };
+}
+
+// One-time migration: split old combined calc storage into display + position keys
+(function migrateCalcPos(){
+  try {
+    const old = JSON.parse(localStorage.getItem('ff_calc_v1') || '{}');
+    const newPos = JSON.parse(localStorage.getItem('ff_calc_pos_v1') || 'null');
+    if (newPos === null && (typeof old.left === 'number' || typeof old.top === 'number')) {
+      localStorage.setItem('ff_calc_pos_v1', JSON.stringify({ left: old.left, top: old.top }));
+    }
+    if (typeof old.left === 'number' || typeof old.top === 'number') {
+      localStorage.setItem('ff_calc_v1', JSON.stringify({ current: old.current }));
+    }
+  } catch {}
+})();
+
 // ===== Floating Calculator =====
 const CALC = { current:'0', prev:null, op:null, justEvaluated:false };
 const calcPanel   = $('calcPanel');
 const calcHeader  = $('calcHeader');
 const calcDisplay = $('calcDisplay');
 const CALC_STORAGE_KEY = 'ff_calc_v1';
+const calcDrag = makeDraggable({
+  panel: calcPanel,
+  header: calcHeader,
+  storageKey: 'ff_calc_pos_v1',
+  defaultLeft: window.innerWidth - 240 - 16,
+  defaultTop: 100,
+});
 
 function calcRender(){ calcDisplay.textContent = CALC.current; }
 function calcLoadStorage(){
@@ -1993,10 +2094,6 @@ function calcLoadStorage(){
 }
 function calcSaveState(){
   const s = calcLoadStorage(); s.current = CALC.current;
-  localStorage.setItem(CALC_STORAGE_KEY, JSON.stringify(s));
-}
-function calcSavePos(left, top){
-  const s = calcLoadStorage(); s.left = left; s.top = top;
   localStorage.setItem(CALC_STORAGE_KEY, JSON.stringify(s));
 }
 function calcCompute(a, op, b){
@@ -2053,14 +2150,7 @@ function calcRestore(){
   const s = calcLoadStorage();
   if(typeof s.current === 'string') CALC.current = s.current;
   calcRender();
-  const w = calcPanel.offsetWidth || 240;
-  const h = calcPanel.offsetHeight || 360;
-  let left = (typeof s.left === 'number') ? s.left : (window.innerWidth - w - 16);
-  let top  = (typeof s.top  === 'number') ? s.top  : 100;
-  left = Math.max(0, Math.min(left, window.innerWidth  - w));
-  top  = Math.max(0, Math.min(top,  window.innerHeight - h));
-  calcPanel.style.left = left + 'px';
-  calcPanel.style.top  = top  + 'px';
+  calcDrag.restore();
 }
 
 $('calcToggleBtn').addEventListener('click', () => {
@@ -2075,36 +2165,43 @@ calcPanel.querySelector('.calc-grid').addEventListener('click', e => {
   if(key) calcInput(key);
 });
 
-// Drag with Pointer Events (mouse + touch unified)
-let calcDrag = null;
-calcHeader.addEventListener('pointerdown', e => {
-  if(e.target.id === 'calcCloseBtn') return;
-  const r = calcPanel.getBoundingClientRect();
-  calcDrag = { offX: e.clientX - r.left, offY: e.clientY - r.top };
-  calcHeader.classList.add('dragging');
-  calcHeader.setPointerCapture(e.pointerId);
-});
-calcHeader.addEventListener('pointermove', e => {
-  if(!calcDrag) return;
-  e.preventDefault();
-  const w = calcPanel.offsetWidth, h = calcPanel.offsetHeight;
-  const left = Math.max(0, Math.min(e.clientX - calcDrag.offX, window.innerWidth  - w));
-  const top  = Math.max(0, Math.min(e.clientY - calcDrag.offY, window.innerHeight - h));
-  calcPanel.style.left = left + 'px';
-  calcPanel.style.top  = top  + 'px';
-});
-calcHeader.addEventListener('pointerup', e => {
-  if(!calcDrag) return;
-  calcDrag = null;
-  calcHeader.classList.remove('dragging');
-  calcHeader.releasePointerCapture(e.pointerId);
-  const r = calcPanel.getBoundingClientRect();
-  calcSavePos(r.left, r.top);
+// ===== Times Chart =====
+(function buildChart(){
+  const cells = [];
+  for (let r = 0; r <= 12; r++) {
+    for (let c = 0; c <= 12; c++) {
+      if (r === 0 && c === 0)      cells.push('<div class="chart-cell corner"></div>');
+      else if (r === 0)            cells.push(`<div class="chart-cell header">${c}</div>`);
+      else if (c === 0)            cells.push(`<div class="chart-cell header">${r}</div>`);
+      else                         cells.push(`<div class="chart-cell">${r*c}</div>`);
+    }
+  }
+  $('chartGrid').innerHTML = cells.join('');
+})();
+
+const chartPanel  = $('chartPanel');
+const chartHeader = $('chartHeader');
+const chartDrag = makeDraggable({
+  panel: chartPanel,
+  header: chartHeader,
+  storageKey: 'ff_chart_pos_v1',
+  defaultLeft: 16,
+  defaultTop: 100,
 });
 
-// Auto-hide calc when math phase ends (reuses existing `mathPhase` const)
+$('chartToggleBtn').addEventListener('click', () => {
+  if (chartPanel.classList.contains('show')) { chartPanel.classList.remove('show'); return; }
+  chartPanel.classList.add('show');
+  chartDrag.restore();
+});
+$('chartCloseBtn').addEventListener('click', () => chartPanel.classList.remove('show'));
+
+// Auto-hide floating panels when math phase ends
 new MutationObserver(() => {
-  if(mathPhase.classList.contains('hidden')) calcPanel.classList.remove('show');
+  if (mathPhase.classList.contains('hidden')) {
+    calcPanel.classList.remove('show');
+    chartPanel.classList.remove('show');
+  }
 }).observe(mathPhase, { attributes: true, attributeFilter: ['class'] });
 </script>
 
