@@ -315,6 +315,12 @@
 
     <div class="question" id="question"></div>
 
+    <div id="kcfRow" style="text-align:center; margin:6px 0 10px; display:none;">
+      <span style="color:var(--muted); font-size:12px; margin-right:8px;">Keep Change Flip:</span>
+      <button class="btn secondary" id="kcfChangeBtn" style="font-size:13px; padding:6px 14px;">Change</button>
+      <button class="btn secondary" id="kcfFlipBtn"   style="font-size:13px; padding:6px 14px;">Flip</button>
+    </div>
+
     <div class="answer-row">
       <input id="ansWhole" type="number" inputmode="numeric" placeholder="?" style="display:none;" />
       <input id="ansNum" type="number" inputmode="numeric" placeholder="?" />
@@ -612,6 +618,11 @@ function renderQuestion(){
     $('ansWhole').style.display = 'none';
   }
   $('question').innerHTML = html;
+  // Reset Keep-Change-Flip helper for the new question
+  kcf.changed = false; kcf.flipped = false;
+  $('kcfChangeBtn').disabled = false;
+  $('kcfFlipBtn').disabled   = false;
+  $('kcfRow').style.display  = (q.op === '÷') ? '' : 'none';
   $('ansWhole').value=''; $('ansNum').value=''; $('ansDen').value='';
   (q.op === 'imp' ? $('ansWhole') : $('ansNum')).focus();
   $('feedback').textContent='';
@@ -1072,6 +1083,31 @@ $('showMeHowBtn').addEventListener('click', () => {
 $('closeLoomModalBtn').addEventListener('click', () => {
   $('loomModal').classList.remove('show');
   $('loomFrame').src = '';
+});
+
+// ===== Keep Change Flip helper (Division only) =====
+const kcf = { changed: false, flipped: false };
+
+$('kcfChangeBtn').addEventListener('click', () => {
+  if (kcf.changed) return;
+  const opSpan = $('question').querySelector('.op');
+  if (opSpan) opSpan.textContent = '×';
+  kcf.changed = true;
+  $('kcfChangeBtn').disabled = true;
+});
+
+$('kcfFlipBtn').addEventListener('click', () => {
+  if (kcf.flipped) return;
+  const secondFrac = $('question').querySelectorAll('.frac')[1];
+  if (secondFrac) {
+    const top = secondFrac.querySelector('.top');
+    const bot = secondFrac.querySelector('.bot');
+    const t = top.textContent;
+    top.textContent = bot.textContent;
+    bot.textContent = t;
+  }
+  kcf.flipped = true;
+  $('kcfFlipBtn').disabled = true;
 });
 
 async function openLbModal(){
