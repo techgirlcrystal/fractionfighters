@@ -25,8 +25,8 @@ const clerkClient = createClerkClient({
 app.use(cors());
 app.use(express.json());
 
-// Serve static files (the game)
-app.use(express.static(__dirname, {
+// Serve static files (the game) from www/ — Capacitor's webDir
+app.use(express.static(path.join(__dirname, 'www'), {
   index: 'index.html',
   extensions: ['html']
 }));
@@ -194,7 +194,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'Not found' });
   }
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(__dirname, 'www', 'index.html'));
 });
 
 // Start server
