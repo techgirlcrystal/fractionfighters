@@ -10,3 +10,6 @@ npm-debug.log
 ios
 android
 capacitor.config.json
+
+# Expo / React Native app — separate project, not needed in the server image
+mobile
