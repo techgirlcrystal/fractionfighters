@@ -305,6 +305,66 @@
   }
   .chart-cell.header { background: var(--accent); color: #1b2046; font-weight: 700; }
   .chart-cell.corner { background: #2a2f5e; }
+
+  /* Division House (Improper level) */
+  .mode-picker-row {
+    text-align: center; margin: 8px 0 10px; display: none;
+  }
+  .mode-btn {
+    display: inline-block;
+    background: #2a2f5e; color: var(--text);
+    border: 0; border-radius: 6px;
+    padding: 6px 16px; font-size: 13px;
+    cursor: pointer; margin: 0 3px;
+  }
+  .mode-btn.active { background: var(--accent); color: #1b2046; font-weight: 700; }
+  .house-container { display: none; margin: 6px 0 14px; }
+  .house {
+    display: flex; justify-content: center; align-items: flex-start;
+    gap: 4px; padding: 8px 0;
+  }
+  .house-slot {
+    position: relative;
+    width: 70px; height: 50px;
+    border: 2px dashed var(--muted);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 18px;
+  }
+  .house-slot.has-tile { border-style: solid; border-color: var(--good); }
+  .house-slot.has-tile .house-slot-placeholder { display: none; }
+  .house-dividend-wrap {
+    border-top: 3px solid var(--accent);
+    border-left: 3px solid var(--accent);
+    border-top-left-radius: 18px;
+    padding: 6px;
+    margin-left: 2px;
+  }
+  .house-tray {
+    display: flex; justify-content: center; gap: 14px;
+    margin-top: 12px; min-height: 50px;
+  }
+  .house-tile {
+    width: 50px; height: 50px;
+    background: #2a2f5e; color: var(--text);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700;
+    cursor: grab; touch-action: none; user-select: none;
+    font-family: ui-monospace, Menlo, monospace;
+    z-index: 1;
+  }
+  .house-tile.locked { background: var(--good); color: #0b0e1f; cursor: default; }
+  .house-tile.just-locked { animation: tile-settle 200ms ease-out; }
+  .house-tile.wrong { animation: tile-wrong 400ms ease-out; }
+  @keyframes tile-settle {
+    0%   { transform: scale(1.15); }
+    100% { transform: scale(1); }
+  }
+  @keyframes tile-wrong {
+    0%, 100% { background: #2a2f5e; }
+    40%      { background: var(--bad); }
+  }
 </style>
 </head>
 <body>
@@ -338,13 +398,37 @@
 
     <div class="question" id="question"></div>
 
+    <!-- Mode picker (Improper→Proper only) -->
+    <div class="mode-picker-row" id="modePickerRow">
+      <button class="mode-btn active" id="modeQuickBtn">Quick Mode</button>
+      <button class="mode-btn" id="modeHouseBtn">House Mode</button>
+    </div>
+
+    <!-- Division House (Improper, House Mode only) -->
+    <div class="house-container" id="houseContainer">
+      <div class="house">
+        <div class="house-slot" id="houseDivisorSlot" data-accepts="outside">
+          <span class="house-slot-placeholder">?</span>
+        </div>
+        <div class="house-dividend-wrap">
+          <div class="house-slot" id="houseDividendSlot" data-accepts="inside">
+            <span class="house-slot-placeholder">?</span>
+          </div>
+        </div>
+      </div>
+      <div class="house-tray" id="houseTray">
+        <div class="house-tile" id="tileA" data-role="inside"></div>
+        <div class="house-tile" id="tileB" data-role="outside"></div>
+      </div>
+    </div>
+
     <div id="kcfRow" style="text-align:center; margin:6px 0 10px; display:none;">
       <span style="color:var(--muted); font-size:12px; margin-right:8px;">Keep Change Flip:</span>
       <button class="btn secondary" id="kcfChangeBtn" style="font-size:13px; padding:6px 14px;">Change</button>
       <button class="btn secondary" id="kcfFlipBtn"   style="font-size:13px; padding:6px 14px;">Flip</button>
     </div>
 
-    <div class="answer-row">
+    <div class="answer-row" id="answerRow">
       <input id="ansWhole" type="number" inputmode="numeric" placeholder="?" style="display:none;" />
       <input id="ansNum" type="number" inputmode="numeric" placeholder="?" />
       <span class="bar">/</span>
@@ -655,6 +739,8 @@ function renderQuestion(){
   $('kcfChangeBtn').disabled = false;
   $('kcfFlipBtn').disabled   = false;
   $('kcfRow').style.display  = (q.op === '÷') ? '' : 'none';
+  houseResetTiles();
+  houseUpdateView();
   $('ansWhole').value=''; $('ansNum').value=''; $('ansDen').value='';
   (q.op === 'imp' ? $('ansWhole') : $('ansNum')).focus();
   $('feedback').textContent='';
@@ -1142,6 +1228,128 @@ $('kcfFlipBtn').addEventListener('click', () => {
   kcf.flipped = true;
   $('kcfFlipBtn').disabled = true;
 });
+
+// ===== Division House (Improper→Proper) =====
+const houseState = { mode: 'quick', locked: false };
+
+function houseUpdateView() {
+  const q = state.current;
+  const isImproper = q && q.op === 'imp';
+  $('modePickerRow').style.display = isImproper ? '' : 'none';
+  $('houseContainer').style.display = (isImproper && houseState.mode === 'house') ? '' : 'none';
+  $('modeQuickBtn').classList.toggle('active', houseState.mode === 'quick');
+  $('modeHouseBtn').classList.toggle('active', houseState.mode === 'house');
+
+  const hideAnswer = isImproper && houseState.mode === 'house' && !houseState.locked;
+  $('answerRow').style.display = hideAnswer ? 'none' : '';
+  $('submitBtn').style.display  = hideAnswer ? 'none' : '';
+}
+
+function houseResetTiles() {
+  houseState.locked = false;
+  const tray = $('houseTray');
+  $('houseDivisorSlot').classList.remove('has-tile');
+  $('houseDividendSlot').classList.remove('has-tile');
+  const order = Math.random() < 0.5 ? ['tileA', 'tileB'] : ['tileB', 'tileA'];
+  order.forEach(id => {
+    const tile = $(id);
+    tile.classList.remove('locked', 'wrong', 'just-locked');
+    tile.style.transform = '';
+    tile.style.transition = '';
+    tray.appendChild(tile);
+  });
+  if (state.current && state.current.op === 'imp') {
+    $('tileA').textContent = state.current.a;
+    $('tileB').textContent = state.current.b;
+  }
+}
+
+$('modeQuickBtn').addEventListener('click', () => {
+  if (houseState.mode === 'quick') return;
+  houseState.mode = 'quick';
+  houseUpdateView();
+});
+$('modeHouseBtn').addEventListener('click', () => {
+  if (houseState.mode === 'house') return;
+  houseState.mode = 'house';
+  houseResetTiles();
+  houseUpdateView();
+});
+
+function makeTileDraggable(tile) {
+  let dragging = false, startX, startY;
+  tile.addEventListener('pointerdown', e => {
+    if (tile.classList.contains('locked')) return;
+    dragging = true;
+    startX = e.clientX; startY = e.clientY;
+    tile.style.transition = '';
+    tile.style.zIndex = '100';
+    tile.setPointerCapture(e.pointerId);
+  });
+  tile.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    e.preventDefault();
+    tile.style.transform = `translate(${e.clientX - startX}px, ${e.clientY - startY}px)`;
+  });
+  tile.addEventListener('pointerup', e => {
+    if (!dragging) return;
+    dragging = false;
+    tile.style.zIndex = '';
+    tile.releasePointerCapture(e.pointerId);
+    onTileDrop(tile);
+  });
+}
+
+function onTileDrop(tile) {
+  const tr = tile.getBoundingClientRect();
+  const cx = tr.left + tr.width / 2;
+  const cy = tr.top  + tr.height / 2;
+  const slots = [$('houseDivisorSlot'), $('houseDividendSlot')];
+  for (const slot of slots) {
+    const r = slot.getBoundingClientRect();
+    if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) {
+      const matched = slot.dataset.accepts === tile.dataset.role
+                   && !slot.classList.contains('has-tile');
+      if (matched) lockTileInSlot(tile, slot);
+      else         flashWrongAndReturn(tile);
+      return;
+    }
+  }
+  returnHome(tile);
+}
+
+function lockTileInSlot(tile, slot) {
+  slot.appendChild(tile);
+  tile.style.transform = '';
+  tile.style.transition = '';
+  tile.classList.add('locked', 'just-locked');
+  slot.classList.add('has-tile');
+  setTimeout(() => tile.classList.remove('just-locked'), 200);
+  const bothLocked = $('houseDivisorSlot').classList.contains('has-tile')
+                  && $('houseDividendSlot').classList.contains('has-tile');
+  if (bothLocked) {
+    houseState.locked = true;
+    houseUpdateView();
+  }
+}
+
+function flashWrongAndReturn(tile) {
+  tile.classList.add('wrong');
+  tile.style.transition = 'transform 400ms ease-out';
+  tile.style.transform = '';
+  setTimeout(() => {
+    tile.classList.remove('wrong');
+    tile.style.transition = '';
+  }, 400);
+}
+function returnHome(tile) {
+  tile.style.transition = 'transform 200ms ease-out';
+  tile.style.transform = '';
+  setTimeout(() => { tile.style.transition = ''; }, 200);
+}
+
+makeTileDraggable($('tileA'));
+makeTileDraggable($('tileB'));
 
 async function openLbModal(){
   $('lbModal').classList.add('show');
