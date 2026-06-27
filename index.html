@@ -470,6 +470,30 @@
     0%, 100% { background: rgba(255,210,63,.08); }
     40%      { background: var(--bad); }
   }
+
+  /* Touch controls (mobile-friendly game buttons, also clickable on desktop) */
+  .touch-controls {
+    display: flex; gap: 8px; justify-content: center;
+    margin-top: 12px; flex-wrap: wrap;
+    padding: 0 8px;
+  }
+  .touch-btn {
+    background: #2a2f5e; color: var(--text);
+    border: 0; border-radius: 12px;
+    padding: 14px 18px; font-size: 22px; font-weight: 700;
+    min-width: 64px; min-height: 56px;
+    cursor: pointer; touch-action: none; user-select: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 3px 0 #1b2046;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .touch-btn:active, .touch-btn.hold-active {
+    transform: translateY(2px);
+    box-shadow: 0 1px 0 #1b2046;
+    filter: brightness(1.15);
+  }
+  .touch-btn.jump  { background: #4ade80; color: #0b0e1f; }
+  .touch-btn.punch { background: #f87171; color: #1b2046; }
 </style>
 </head>
 <body>
@@ -570,6 +594,12 @@
         ◀ ▶ Move &nbsp;|&nbsp; ▲ Jump &nbsp;|&nbsp; SPACE Punch &nbsp;|&nbsp; Get close to hit the boss!
       </div>
       <div class="feedback" id="fightFeedback"></div>
+      <div class="touch-controls" id="fightControls">
+        <button class="touch-btn" id="fightLeftBtn" aria-label="Move left">◀</button>
+        <button class="touch-btn jump" id="fightJumpBtn" aria-label="Jump">▲</button>
+        <button class="touch-btn punch" id="fightPunchBtn" aria-label="Punch">👊</button>
+        <button class="touch-btn" id="fightRightBtn" aria-label="Move right">▶</button>
+      </div>
     </div>
   </div>
 
@@ -1128,17 +1158,56 @@ function updateFightHUD(){
 }
 
 /* ---------- INPUT ---------- */
+function fightPunch() {
+  if (!fightActive || !player || player.punchCD > 0) return;
+  player.punching = 10;
+  player.punchCD = PUNCH_COOLDOWN;
+  tryPlayerHit();
+}
+
 window.addEventListener('keydown', e=>{
   if(!fightActive) return;
   if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(e.key)) e.preventDefault();
   keys[e.key] = true;
-  if(e.key === ' ' && player.punchCD <= 0){
-    player.punching = 10;
-    player.punchCD = PUNCH_COOLDOWN;
-    tryPlayerHit();
-  }
+  if(e.key === ' ') fightPunch();
 });
 window.addEventListener('keyup', e=>{ keys[e.key] = false; });
+
+// Generic touch-button helpers (shared by mini-game touch controls)
+function bindHoldButton(btn, onPress, onRelease) {
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch {}
+    btn.classList.add('hold-active');
+    if (navigator.vibrate) navigator.vibrate(10);
+    onPress();
+  });
+  const release = (e) => {
+    if (!btn.classList.contains('hold-active')) return;
+    btn.classList.remove('hold-active');
+    try { btn.releasePointerCapture(e.pointerId); } catch {}
+    onRelease();
+  };
+  btn.addEventListener('pointerup', release);
+  btn.addEventListener('pointercancel', release);
+  btn.addEventListener('lostpointercapture', release);
+}
+function bindTapButton(btn, onTap) {
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (navigator.vibrate) navigator.vibrate(10);
+    onTap();
+  });
+}
+
+// Stick Boss Fight touch controls
+bindHoldButton($('fightLeftBtn'),  () => { keys['ArrowLeft']  = true;  },
+                                   () => { keys['ArrowLeft']  = false; });
+bindHoldButton($('fightRightBtn'), () => { keys['ArrowRight'] = true;  },
+                                   () => { keys['ArrowRight'] = false; });
+bindHoldButton($('fightJumpBtn'),  () => { keys['ArrowUp']    = true;  },
+                                   () => { keys['ArrowUp']    = false; });
+bindTapButton($('fightPunchBtn'), fightPunch);
 
 function tryPlayerHit(){
   const dist = Math.abs(player.x - boss.x);
