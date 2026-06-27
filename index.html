@@ -383,17 +383,36 @@
     padding: 10px 6px; margin-bottom: 10px;
     font-family: ui-monospace, Menlo, monospace;
     color: var(--text);
-    display: grid;
-    grid-template-columns: 32px 1fr;
-    row-gap: 2px; align-items: center;
   }
-  .ws-left  { text-align: right; padding-right: 4px; }
-  .ws-right { display: flex; align-items: center; gap: 4px; min-height: 28px; }
-  .ws-divisor { font-size: 18px; }
-  .ws-dividend { font-size: 18px; padding-left: 6px; }
-  .ws-bar { border-top: 2px solid var(--accent); height: 0; width: 90px; }
-  .ws-bar.small { width: 70px; }
+  .ws-quotient-row {
+    display: grid; grid-template-columns: 36px 1fr;
+    align-items: center;
+  }
+  .ws-quotient-area { padding-left: 12px; }
+  .ws-divisor-row {
+    display: grid; grid-template-columns: 36px 1fr;
+    align-items: start;
+  }
+  .ws-divisor {
+    text-align: right; padding-right: 6px; padding-top: 6px;
+    font-size: 18px;
+  }
+  .ws-bracket-container {
+    border-top: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+    border-top-left-radius: 14px;
+    padding: 6px 6px 6px 10px;
+    display: flex; flex-direction: column; gap: 3px;
+    min-height: 80px;
+  }
+  .ws-dividend-row,
+  .ws-product-row,
+  .ws-remainder-row {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .ws-dividend { font-size: 18px; }
   .ws-minus { color: var(--muted); font-size: 16px; padding-right: 2px; }
+  .ws-sub-bar { border-top: 2px solid var(--accent); width: 75%; margin: 2px 0; }
   .workspace-slot {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 32px; height: 30px;
@@ -1535,18 +1554,19 @@ function renderWorkspace() {
       <button class="workspace-submode-btn ${W.subMode==='unassisted'?'active':''}" data-submode="unassisted">Unassisted</button>
     </div>
     <div class="workspace-division">
-      <div class="ws-left"></div>
-      <div class="ws-right">${slotHtml(0)}</div>
-      <div class="ws-left"></div>
-      <div class="ws-right"><div class="ws-bar"></div></div>
-      <div class="ws-left ws-divisor">${q.b}</div>
-      <div class="ws-right"><span class="ws-dividend">${q.a}</span></div>
-      <div class="ws-left"></div>
-      <div class="ws-right"><span class="ws-minus">−</span> ${slotHtml(1)}</div>
-      <div class="ws-left"></div>
-      <div class="ws-right"><div class="ws-bar small"></div></div>
-      <div class="ws-left"></div>
-      <div class="ws-right">${slotHtml(2)}</div>
+      <div class="ws-quotient-row">
+        <div></div>
+        <div class="ws-quotient-area">${slotHtml(0)}</div>
+      </div>
+      <div class="ws-divisor-row">
+        <div class="ws-divisor">${q.b}</div>
+        <div class="ws-bracket-container">
+          <div class="ws-dividend-row"><span class="ws-dividend">${q.a}</span></div>
+          <div class="ws-product-row"><span class="ws-minus">−</span>${slotHtml(1)}</div>
+          <div class="ws-sub-bar"></div>
+          <div class="ws-remainder-row">${slotHtml(2)}</div>
+        </div>
+      </div>
     </div>
     ${padHtml}
     ${footer}
