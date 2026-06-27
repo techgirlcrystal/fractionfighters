@@ -365,6 +365,92 @@
     0%, 100% { background: #2a2f5e; }
     40%      { background: var(--bad); }
   }
+
+  /* Long Division Workspace */
+  #workspacePanel { width: 300px; }
+  .workspace-body { padding: 10px 12px 12px; }
+  .workspace-submode-row {
+    display: flex; gap: 6px; justify-content: center; margin-bottom: 10px;
+  }
+  .workspace-submode-btn {
+    background: #2a2f5e; color: var(--text);
+    border: 0; border-radius: 6px;
+    padding: 5px 14px; font-size: 12px; cursor: pointer;
+  }
+  .workspace-submode-btn.active { background: var(--accent); color: #1b2046; font-weight: 700; }
+  .workspace-division {
+    background: #0b0e1f; border-radius: 6px;
+    padding: 10px 6px; margin-bottom: 10px;
+    font-family: ui-monospace, Menlo, monospace;
+    color: var(--text);
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    row-gap: 2px; align-items: center;
+  }
+  .ws-left  { text-align: right; padding-right: 4px; }
+  .ws-right { display: flex; align-items: center; gap: 4px; min-height: 28px; }
+  .ws-divisor { font-size: 18px; }
+  .ws-dividend { font-size: 18px; padding-left: 6px; }
+  .ws-bar { border-top: 2px solid var(--accent); height: 0; width: 90px; }
+  .ws-bar.small { width: 70px; }
+  .ws-minus { color: var(--muted); font-size: 16px; padding-right: 2px; }
+  .workspace-slot {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 32px; height: 30px;
+    border: 2px dashed var(--muted);
+    border-radius: 4px;
+    font-size: 18px; color: var(--text);
+    padding: 0 6px;
+  }
+  .workspace-slot.active { border-color: var(--accent); background: rgba(255,210,63,.08); }
+  .workspace-slot.future { border-style: dotted; color: var(--muted); opacity: .5; }
+  .workspace-slot.locked { border-style: solid; border-color: var(--good); background: var(--good); color: #0b0e1f; font-weight: 700; }
+  .workspace-slot.wrong  { animation: slot-wrong 400ms ease-out; }
+  .workspace-slot-ph     { color: var(--muted); }
+  .workspace-digit-tile  {
+    display: inline-block; background: #2a2f5e; color: var(--text);
+    padding: 1px 5px; border-radius: 3px; margin: 0 1px; font-weight: 700;
+  }
+  .workspace-input {
+    width: 50px; background: transparent; color: var(--text);
+    border: 0; font-size: 18px; text-align: center;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .workspace-input:focus { outline: none; }
+  .workspace-pad {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 4px; margin-bottom: 10px;
+  }
+  .workspace-pad-btn {
+    background: #2a2f5e; color: var(--text);
+    border: 0; border-radius: 4px;
+    padding: 8px 0; font-size: 14px;
+    cursor: pointer; touch-action: none;
+    font-family: ui-monospace, Menlo, monospace;
+    user-select: none;
+  }
+  .workspace-pad-btn:active { transform: translateY(1px); }
+  .workspace-pad-btn.backspace { background: #3a3f7a; grid-column: span 2; }
+  .workspace-pad-ghost { pointer-events: none; opacity: 0.85; }
+  .workspace-step-indicator {
+    text-align: center; color: var(--muted); font-size: 12px; margin-bottom: 8px;
+  }
+  .workspace-check-btn {
+    display: block; margin: 0 auto;
+    background: var(--accent); color: #1b2046;
+    border: 0; border-radius: 6px;
+    padding: 8px 18px; font-size: 13px; font-weight: 700;
+    cursor: pointer;
+  }
+  .workspace-done-msg {
+    text-align: center; color: var(--good); font-size: 13px;
+    background: rgba(74,222,128,.1); padding: 8px; border-radius: 6px;
+  }
+  #openWorkspaceBtn { display: none; margin-top: 10px; }
+  @keyframes slot-wrong {
+    0%, 100% { background: rgba(255,210,63,.08); }
+    40%      { background: var(--bad); }
+  }
 </style>
 </head>
 <body>
@@ -419,6 +505,9 @@
       <div class="house-tray" id="houseTray">
         <div class="house-tile" id="tileA" data-role="inside"></div>
         <div class="house-tile" id="tileB" data-role="outside"></div>
+      </div>
+      <div style="text-align:center;">
+        <button class="btn secondary" id="openWorkspaceBtn" style="font-size:13px; padding:6px 14px;">🔢 Open Workspace</button>
       </div>
     </div>
 
@@ -578,6 +667,14 @@
       <button class="float-close" id="chartCloseBtn" aria-label="Close chart">×</button>
     </div>
     <div class="chart-grid" id="chartGrid"></div>
+  </div>
+  <!-- Long Division Workspace (Improper, House Mode, both setup tiles locked) -->
+  <div class="float-panel" id="workspacePanel">
+    <div class="float-header" id="workspaceHeader">
+      <span>🔢 Long Division Workspace</span>
+      <button class="float-close" id="workspaceCloseBtn" aria-label="Close workspace">×</button>
+    </div>
+    <div class="workspace-body" id="workspaceBody"></div>
   </div>
 </div>
 
@@ -740,6 +837,7 @@ function renderQuestion(){
   $('kcfFlipBtn').disabled   = false;
   $('kcfRow').style.display  = (q.op === '÷') ? '' : 'none';
   houseResetTiles();
+  workspaceReset();
   houseUpdateView();
   $('ansWhole').value=''; $('ansNum').value=''; $('ansDen').value='';
   (q.op === 'imp' ? $('ansWhole') : $('ansNum')).focus();
@@ -1243,6 +1341,7 @@ function houseUpdateView() {
   const hideAnswer = isImproper && houseState.mode === 'house' && !houseState.locked;
   $('answerRow').style.display = hideAnswer ? 'none' : '';
   $('submitBtn').style.display  = hideAnswer ? 'none' : '';
+  $('openWorkspaceBtn').style.display = (isImproper && houseState.mode === 'house' && houseState.locked) ? 'inline-block' : 'none';
 }
 
 function houseResetTiles() {
@@ -1267,6 +1366,7 @@ function houseResetTiles() {
 $('modeQuickBtn').addEventListener('click', () => {
   if (houseState.mode === 'quick') return;
   houseState.mode = 'quick';
+  workspaceClose();
   houseUpdateView();
 });
 $('modeHouseBtn').addEventListener('click', () => {
@@ -1350,6 +1450,223 @@ function returnHome(tile) {
 
 makeTileDraggable($('tileA'));
 makeTileDraggable($('tileB'));
+
+// ===== Long Division Workspace =====
+const workspaceState = {
+  open: false,
+  subMode: 'assisted',
+  activeStep: 1,
+  stepValues: ['', '', ''],
+  stepLocked: [false, false, false],
+};
+const workspacePanel  = $('workspacePanel');
+const workspaceHeader = $('workspaceHeader');
+const workspaceDrag = makeDraggable({
+  panel: workspacePanel,
+  header: workspaceHeader,
+  storageKey: 'ff_workspace_pos_v1',
+  defaultLeft: 16,
+  defaultTop: 220,
+});
+
+function workspaceOpen() {
+  workspaceState.open = true;
+  workspacePanel.classList.add('show');
+  workspaceDrag.restore();
+  renderWorkspace();
+}
+function workspaceClose() {
+  workspaceState.open = false;
+  workspacePanel.classList.remove('show');
+}
+function workspaceReset() {
+  workspaceState.activeStep = 1;
+  workspaceState.stepValues = ['', '', ''];
+  workspaceState.stepLocked = [false, false, false];
+  if (workspaceState.open) renderWorkspace();
+}
+
+$('openWorkspaceBtn').addEventListener('click', () => workspaceOpen());
+$('workspaceCloseBtn').addEventListener('click', () => workspaceClose());
+
+function allStepsLocked() {
+  return workspaceState.stepLocked.every(Boolean);
+}
+
+function renderWorkspace() {
+  if (!state.current || state.current.op !== 'imp') return;
+  const q = state.current;
+  const W = workspaceState;
+  const stepLabels = ['Quotient', 'Product', 'Remainder'];
+  const stepDone = allStepsLocked();
+
+  function slotHtml(i) {
+    if (W.stepLocked[i]) {
+      return `<div class="workspace-slot locked">${W.stepValues[i]}</div>`;
+    }
+    if (W.activeStep - 1 !== i) {
+      return `<div class="workspace-slot future">?</div>`;
+    }
+    if (W.subMode === 'unassisted') {
+      return `<div class="workspace-slot active"><input type="number" inputmode="numeric" class="workspace-input" id="wsInput-${i}" value="${W.stepValues[i]}" /></div>`;
+    }
+    const tiles = (W.stepValues[i] || '').split('').map(d =>
+      `<span class="workspace-digit-tile">${d}</span>`
+    ).join('');
+    return `<div class="workspace-slot active drop-zone" id="wsSlot-${i}">${tiles || '<span class="workspace-slot-ph">?</span>'}</div>`;
+  }
+
+  const padHtml = (W.subMode === 'assisted' && !stepDone) ? `
+    <div class="workspace-pad" id="workspacePad">
+      ${[0,1,2,3,4,5,6,7,8,9].map(d =>
+        `<button class="workspace-pad-btn" data-digit="${d}">${d}</button>`
+      ).join('')}
+      <button class="workspace-pad-btn backspace" data-digit="back">⌫</button>
+    </div>` : '';
+
+  const footer = stepDone
+    ? `<div class="workspace-done-msg">✓ Done — enter your answer below</div>`
+    : `<div class="workspace-step-indicator">Step ${W.activeStep} of 3: ${stepLabels[W.activeStep-1]}</div>
+       <button class="workspace-check-btn" id="wsCheckBtn">Check My Work</button>`;
+
+  $('workspaceBody').innerHTML = `
+    <div class="workspace-submode-row">
+      <button class="workspace-submode-btn ${W.subMode==='assisted'?'active':''}" data-submode="assisted">Assisted</button>
+      <button class="workspace-submode-btn ${W.subMode==='unassisted'?'active':''}" data-submode="unassisted">Unassisted</button>
+    </div>
+    <div class="workspace-division">
+      <div class="ws-left"></div>
+      <div class="ws-right">${slotHtml(0)}</div>
+      <div class="ws-left"></div>
+      <div class="ws-right"><div class="ws-bar"></div></div>
+      <div class="ws-left ws-divisor">${q.b}</div>
+      <div class="ws-right"><span class="ws-dividend">${q.a}</span></div>
+      <div class="ws-left"></div>
+      <div class="ws-right"><span class="ws-minus">−</span> ${slotHtml(1)}</div>
+      <div class="ws-left"></div>
+      <div class="ws-right"><div class="ws-bar small"></div></div>
+      <div class="ws-left"></div>
+      <div class="ws-right">${slotHtml(2)}</div>
+    </div>
+    ${padHtml}
+    ${footer}
+  `;
+  wireWorkspaceEvents();
+}
+
+function wireWorkspaceEvents() {
+  $('workspaceBody').querySelectorAll('.workspace-submode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const newMode = btn.dataset.submode;
+      if (workspaceState.subMode === newMode) return;
+      workspaceState.subMode = newMode;
+      renderWorkspace();
+    });
+  });
+  const i = workspaceState.activeStep - 1;
+  const inp = $('wsInput-' + i);
+  if (inp) {
+    inp.addEventListener('input', e => {
+      workspaceState.stepValues[i] = e.target.value;
+    });
+    inp.focus();
+  }
+  const pad = $('workspacePad');
+  if (pad) {
+    pad.querySelectorAll('.workspace-pad-btn').forEach(btn => {
+      if (btn.dataset.digit === 'back') {
+        btn.addEventListener('click', onBackspace);
+      } else {
+        makePadButtonInteractive(btn);
+      }
+    });
+  }
+  const check = $('wsCheckBtn');
+  if (check) check.addEventListener('click', checkActiveStep);
+}
+
+function onBackspace() {
+  const i = workspaceState.activeStep - 1;
+  workspaceState.stepValues[i] = workspaceState.stepValues[i].slice(0, -1);
+  renderWorkspace();
+}
+
+function appendDigit(d) {
+  const i = workspaceState.activeStep - 1;
+  if (workspaceState.stepValues[i].length >= 3) return;
+  workspaceState.stepValues[i] += String(d);
+  renderWorkspace();
+}
+
+function hitActiveSlot(x, y) {
+  const i = workspaceState.activeStep - 1;
+  const slot = $('wsSlot-' + i);
+  if (!slot) return false;
+  const r = slot.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+function makePadButtonInteractive(btn) {
+  let startX, startY, ghost = null;
+  btn.addEventListener('pointerdown', e => {
+    startX = e.clientX; startY = e.clientY;
+    ghost = btn.cloneNode(true);
+    ghost.classList.add('workspace-pad-ghost');
+    ghost.style.position = 'fixed';
+    ghost.style.left = (e.clientX - 18) + 'px';
+    ghost.style.top  = (e.clientY - 18) + 'px';
+    ghost.style.width = '36px';
+    ghost.style.zIndex = '120';
+    document.body.appendChild(ghost);
+    btn.setPointerCapture(e.pointerId);
+  });
+  btn.addEventListener('pointermove', e => {
+    if (!ghost) return;
+    e.preventDefault();
+    ghost.style.left = (e.clientX - 18) + 'px';
+    ghost.style.top  = (e.clientY - 18) + 'px';
+  });
+  btn.addEventListener('pointerup', e => {
+    if (!ghost) return;
+    btn.releasePointerCapture(e.pointerId);
+    const dx = Math.abs(e.clientX - startX);
+    const dy = Math.abs(e.clientY - startY);
+    const isTap = (dx < 5 && dy < 5);
+    if (isTap || hitActiveSlot(e.clientX, e.clientY)) {
+      appendDigit(btn.dataset.digit);
+    }
+    ghost.remove();
+    ghost = null;
+  });
+}
+
+function flashSlotWrong(i) {
+  workspaceState.stepValues[i] = '';
+  renderWorkspace();
+  const slot = $('wsSlot-' + i) || ($('wsInput-' + i) && $('wsInput-' + i).parentElement);
+  if (slot) {
+    slot.classList.add('wrong');
+    setTimeout(() => slot.classList.remove('wrong'), 400);
+  }
+}
+
+function checkActiveStep() {
+  const q = state.current;
+  const quotient  = Math.floor(q.a / q.b);
+  const product   = q.b * quotient;
+  const remainder = q.a - product;
+  const expected  = [quotient, product, remainder];
+
+  const i = workspaceState.activeStep - 1;
+  const entered = parseInt(workspaceState.stepValues[i], 10);
+  if (!isNaN(entered) && entered === expected[i]) {
+    workspaceState.stepLocked[i] = true;
+    if (workspaceState.activeStep < 3) workspaceState.activeStep++;
+    renderWorkspace();
+  } else {
+    flashSlotWrong(i);
+  }
+}
 
 async function openLbModal(){
   $('lbModal').classList.add('show');
@@ -2409,6 +2726,7 @@ new MutationObserver(() => {
   if (mathPhase.classList.contains('hidden')) {
     calcPanel.classList.remove('show');
     chartPanel.classList.remove('show');
+    workspacePanel.classList.remove('show');
   }
 }).observe(mathPhase, { attributes: true, attributeFilter: ['class'] });
 </script>
