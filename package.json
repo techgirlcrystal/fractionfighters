@@ -9,6 +9,7 @@
     "build": "echo 'no build needed — Capacitor webDir points at www/'"
   },
   "dependencies": {
+    "@capacitor/ios": "^8.4.1",
     "@clerk/backend": "^3.8.2",
     "@neondatabase/serverless": "^1.1.0",
     "cors": "^2.8.6",
