@@ -1235,8 +1235,8 @@ const houseState = { mode: 'quick', locked: false };
 function houseUpdateView() {
   const q = state.current;
   const isImproper = q && q.op === 'imp';
-  $('modePickerRow').style.display = isImproper ? '' : 'none';
-  $('houseContainer').style.display = (isImproper && houseState.mode === 'house') ? '' : 'none';
+  $('modePickerRow').style.display = isImproper ? 'block' : 'none';
+  $('houseContainer').style.display = (isImproper && houseState.mode === 'house') ? 'block' : 'none';
   $('modeQuickBtn').classList.toggle('active', houseState.mode === 'quick');
   $('modeHouseBtn').classList.toggle('active', houseState.mode === 'house');
 
