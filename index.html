@@ -204,16 +204,16 @@
 
   .hidden { display: none !important; }
 
-  /* Leaderboard modal */
-  #lbModal {
+  /* Modal (shared) */
+  .modal {
     position: fixed; top:0; left:0; width:100%; height:100%;
     background: rgba(0,0,0,.7);
     display: none;
     align-items: center; justify-content: center;
     z-index: 100;
   }
-  #lbModal.show { display: flex; }
-  #lbModalContent {
+  .modal.show { display: flex; }
+  .modal-content {
     background: var(--panel);
     border: 3px solid #3a3f7a;
     border-radius: 14px;
@@ -221,6 +221,10 @@
     max-width: 500px; width: 90%;
     max-height: 80vh; overflow-y: auto;
   }
+  /* Loom modal: wider so the 16:9 iframe fits */
+  #loomModal .modal-content { max-width: 720px; }
+  .loom-embed { position: relative; padding-bottom: 56.25%; height: 0; margin: 14px 0; }
+  .loom-embed iframe { position: absolute; top:0; left:0; width:100%; height:100%; border:0; border-radius: 8px; }
 </style>
 </head>
 <body>
@@ -246,6 +250,9 @@
       <div class="stat">Streak <b id="streak">0</b>/5 • Score <b id="score">0</b></div>
     </div>
     <div style="text-align:center; color:var(--muted); font-size:13px; margin-bottom:10px;">Win: <b id="activityName">Stick Boss Fight</b></div>
+    <div style="text-align:center; margin-bottom:12px;">
+      <button class="btn secondary" id="showMeHowBtn" style="font-size:13px; padding:6px 14px;">Show Me How Lady Hale</button>
+    </div>
 
     <div class="question" id="question"></div>
 
@@ -347,11 +354,21 @@
     <div id="clearLeaderboardPanel" style="margin-top:18px;"></div>
   </div>
   <!-- Leaderboard Modal -->
-  <div id="lbModal">
-    <div id="lbModalContent">
+  <div id="lbModal" class="modal">
+    <div class="modal-content">
       <h2 style="color:var(--accent); text-align:center;">🏆 Leaderboard</h2>
       <div id="lbModalList" style="margin:14px 0;"></div>
       <button class="btn" id="closeLbModalBtn" style="margin:0 auto;">Close</button>
+    </div>
+  </div>
+  <!-- Loom Video Modal -->
+  <div id="loomModal" class="modal">
+    <div class="modal-content">
+      <h2 style="color:var(--accent); text-align:center;" id="loomModalTitle">Show Me How Lady Hale</h2>
+      <div class="loom-embed">
+        <iframe id="loomFrame" src="" allowfullscreen></iframe>
+      </div>
+      <button class="btn" id="closeLoomModalBtn" style="margin:0 auto;">Close</button>
     </div>
   </div>
 </div>
@@ -376,6 +393,14 @@ const LEVELS = [
   { op:'+',  activity:'connect4', name:'Addition',        activityName:'Connect 4' },
   { op:'-',  activity:'tictactoe',name:'Subtraction',     activityName:'Tic Tac Toe' },
 ];
+
+// Loom videos keyed by level name (Improper→Proper has no video yet)
+const LOOM_VIDEOS = {
+  'Addition':       '4794753b7efe4084876ddfa1edbadf17',
+  'Subtraction':    'f77a281e7c774ec89c36485975145fde',
+  'Multiplication': '7919be9b5af040f798f52e3e984e89cd',
+  'Division':       'b96204c1038c41b59128344505d1dbe9',
+};
 
 function currentLevel(){ return LEVELS[(state.round-1) % LEVELS.length]; }
 function opForRound(round){ return currentLevel().op; }
@@ -582,6 +607,7 @@ function updateHUD(){
   $('levelNum').textContent = state.round;
   $('levelOp').textContent = levelName(state.round);
   $('activityName').textContent = activityName(state.round);
+  $('showMeHowBtn').style.display = LOOM_VIDEOS[currentLevel().name] ? '' : 'none';
   $('progBar').style.width = Math.min(100, state.streak*20) + '%';
 }
 
@@ -948,6 +974,18 @@ $('continueBtn').addEventListener('click', ()=>{
 // Leaderboard modal
 $('hudLeaderboardBtn').addEventListener('click', openLbModal);
 $('closeLbModalBtn').addEventListener('click', ()=> $('lbModal').classList.remove('show'));
+
+// Loom modal
+$('showMeHowBtn').addEventListener('click', () => {
+  const id = LOOM_VIDEOS[currentLevel().name];
+  if (!id) return;
+  $('loomFrame').src = `https://www.loom.com/embed/${id}`;
+  $('loomModal').classList.add('show');
+});
+$('closeLoomModalBtn').addEventListener('click', () => {
+  $('loomModal').classList.remove('show');
+  $('loomFrame').src = '';
+});
 
 async function openLbModal(){
   $('lbModal').classList.add('show');
