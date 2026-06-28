@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator,
   ScrollView, SafeAreaView, Alert,
@@ -21,6 +21,9 @@ const COLORS = {
   bad: '#f87171',
   border: '#3a3f7a',
 };
+
+// Backend lives on the correctly-spelled domain (see memory: ff-domain-split).
+const API_BASE = 'https://fightingfractions.xautimarketingai.com';
 
 // Mirrors www/index.html LEVELS (line 756). Level 5's web `op` is the string
 // 'imp'; rendered here as '→' so the op-symbol slot stays visually consistent.
@@ -177,33 +180,90 @@ function AuthScreen() {
 // ---------- SIGNED IN: Level Menu ----------
 function LevelMenuScreen() {
   const { user } = useUser();
-  const { signOut } = useAuth();
+  const { signOut, getToken } = useAuth();
   const name =
     user?.firstName ??
     user?.primaryEmailAddress?.emailAddress?.split('@')[0] ??
     'friend';
 
+  // null = not loaded yet, number = loaded value from the server.
+  const [currentLevel, setCurrentLevel] = useState<number | null>(null);
+  const [error, setError] = useState('');
+
+  // Fetch the user's progress on mount. POST /api/players is the upsert that
+  // the web app already calls on load; it returns `currentLevel` either way
+  // (creates a row at level 1 for new users, returns the existing level for
+  // returning users). Bearer auth: Clerk session token via getToken().
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (cancelled) return;
+        if (!token) {
+          setError('Could not get auth token — try signing out and back in.');
+          return;
+        }
+        const res = await fetch(`${API_BASE}/api/players`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok || !data?.success) {
+          setError(data?.error ?? `Could not load your progress (HTTP ${res.status}).`);
+          return;
+        }
+        setCurrentLevel(typeof data.currentLevel === 'number' ? data.currentLevel : 1);
+      } catch {
+        if (!cancelled) setError('Network error — check your connection.');
+      }
+    })();
+    return () => { cancelled = true; };
+    // Run once on mount. getToken from Clerk's useAuth changes identity per
+    // render in some versions; we only want one fetch, so deps are empty.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.menuScroll}>
         <Text style={styles.title}>Fighting Fractions</Text>
-        <Text style={styles.subtitle}>Welcome, {name}</Text>
+        <Text style={[styles.subtitle, styles.menuSubtitle]}>Welcome, {name}</Text>
+
+        {/* Three states for the progress line: loading / error / loaded */}
+        {error ? (
+          <Text style={styles.progressError}>{error}</Text>
+        ) : currentLevel === null ? (
+          <Text style={styles.progressLoading}>Loading your progress…</Text>
+        ) : (
+          <Text style={styles.progressLine}>
+            Your current level: <Text style={styles.progressLineNumber}>{currentLevel}</Text>
+          </Text>
+        )}
 
         {LEVELS.map((lvl, i) => {
           const num = i + 1;
+          const isCurrent = num === currentLevel;
           return (
             <Pressable
               key={num}
               onPress={() =>
                 Alert.alert('Coming soon', `Level ${num}: ${lvl.name} · ${lvl.activityName}`)
               }
-              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+              style={({ pressed }) => [
+                styles.card,
+                isCurrent && styles.cardCurrent,
+                pressed && styles.cardPressed,
+              ]}
             >
-              <Text style={styles.cardNumber}>{num}</Text>
+              <Text style={[styles.cardNumber, isCurrent && styles.cardNumberCurrent]}>{num}</Text>
               <Text style={styles.cardOp}>{lvl.op}</Text>
               <View style={styles.cardTextWrap}>
                 <Text style={styles.cardName}>{lvl.name}</Text>
-                <Text style={styles.cardActivity}>{lvl.activityName}</Text>
+                <Text style={[styles.cardActivity, isCurrent && styles.cardActivityCurrent]}>
+                  {lvl.activityName}
+                </Text>
               </View>
             </Pressable>
           );
@@ -271,19 +331,26 @@ const styles = StyleSheet.create({
   // Link-style text (Use a different email)
   linkText: { color: COLORS.accent, fontSize: 14, marginTop: 8 },
 
-  // Level cards
+  // Level cards — borderWidth stays 2 always, only color changes when current
+  // (avoids any layout shift when the highlight applies).
   card: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.panel,
-    borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 16, gap: 14,
+    borderWidth: 2, borderColor: COLORS.border, borderRadius: 12, padding: 16, gap: 14,
   },
+  cardCurrent: { borderColor: COLORS.accent },
   cardPressed: { opacity: 0.75 },
   cardNumber: { color: COLORS.muted, fontSize: 24, fontWeight: '700', width: 28, textAlign: 'center' },
+  cardNumberCurrent: { color: COLORS.accent },
   cardOp: { color: COLORS.accent, fontSize: 32, fontWeight: '800', width: 36, textAlign: 'center' },
   cardTextWrap: { flex: 1 },
   cardName: { color: COLORS.text, fontSize: 18, fontWeight: '700' },
   cardActivity: { color: COLORS.muted, fontSize: 14, marginTop: 2 },
+  cardActivityCurrent: { color: COLORS.text },
 
-  // Sign out (small text link at the bottom of menu)
-  signOutLink: { marginTop: 16, alignItems: 'center', padding: 8 },
-  signOutText: { color: COLORS.muted, fontSize: 14 },
+  // Menu progress line (under the Welcome subtitle)
+  menuSubtitle: { marginBottom: 4 },
+  progressLine: { color: COLORS.text, fontSize: 14, textAlign: 'center', marginBottom: 16 },
+  progressLineNumber: { color: COLORS.accent, fontWeight: '700' },
+  progressLoading: { color: COLORS.muted, fontSize: 14, textAlign: 'center', marginBottom: 16 },
+  progressError: { color: COLORS.bad, fontSize: 14, textAlign: 'center', marginBottom: 16 },
 });
