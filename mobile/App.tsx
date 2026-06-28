@@ -22,6 +22,14 @@ const COLORS = {
   border: '#3a3f7a',
 };
 
+// Backend lives on the correctly-spelled domain (see memory: ff-domain-split).
+const API_BASE = 'https://fightingfractions.xautimarketingai.com';
+
+// Gameplay constants
+const QUESTIONS_PER_LEVEL = 5;
+const POINTS_PER_CORRECT = 50;
+const MAX_LEVEL = 7; // == LEVELS.length; the last level cycles on the server, but UI caps here
+
 // ---------- LEVELS (mirrors www/index.html LEVELS at line 756) ----------
 // Level 5's web `op` is the string 'imp'; rendered here as '→' so the op-symbol
 // slot stays visually consistent. Subtraction uses Unicode minus '−' (U+2212),
@@ -292,23 +300,64 @@ function Fraction({ num, den, color }: { num: string | number; den: string | num
   );
 }
 
-// ---------- SIGNED IN: Gameplay (chunk 2 — answer inputs + Check Answer + feedback) ----------
+// ---------- SIGNED IN: Gameplay (chunk 3 — real currentLevel + streak + level/game complete) ----------
 function GameplayScreen() {
-  const { signOut } = useAuth();
+  const { signOut, getToken } = useAuth();
 
-  // Hardcoded for chunk 2. Real /api/players → currentLevel auto-routing lands
-  // in chunk 3; the fetch code lives in git at commit 67caaee for reference.
-  const levelNumber = 1;
-  const level = levelByNumber(levelNumber);
+  // Level the user is currently playing. null = still fetching from /api/players.
+  const [currentLevel, setCurrentLevel] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState('');
 
-  const [question, setQuestion] = useState<Question>(() => makeQuestion(level));
+  // The active math question. null while currentLevel is loading.
+  const [question, setQuestion] = useState<Question | null>(null);
   const [numInput, setNumInput] = useState('');
   const [denInput, setDenInput] = useState('');
+
   type Feedback = { kind: 'idle' | 'correct' | 'wrong'; message: string };
   const [feedback, setFeedback] = useState<Feedback>({ kind: 'idle', message: '' });
 
-  // When the user starts retyping after a wrong answer, clear the red message.
-  // (They've seen it; now they're correcting it — don't keep yelling at them.)
+  // Streak = correct-in-a-row. Resets on wrong. Hits QUESTIONS_PER_LEVEL → level done.
+  const [streak, setStreak] = useState(0);
+  const [levelComplete, setLevelComplete] = useState(false);
+
+  // POST /api/scores lifecycle
+  const [savingScore, setSavingScore] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  // Game-complete only: once final score is saved, show "Saved ✓" instead of the button.
+  const [finalScoreSaved, setFinalScoreSaved] = useState(false);
+
+  // Fetch the user's currentLevel from /api/players on mount, generate first question.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (cancelled) return;
+        if (!token) { setLoadError('Could not get auth token.'); return; }
+        const res = await fetch(`${API_BASE}/api/players`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok || !data?.success) {
+          setLoadError(data?.error ?? `Could not load your progress (HTTP ${res.status}).`);
+          return;
+        }
+        const lvl = typeof data.currentLevel === 'number' ? data.currentLevel : 1;
+        // Clamp: server may have a cycled value (>7) from web sessions; treat as 7.
+        const clamped = Math.min(Math.max(1, lvl), MAX_LEVEL);
+        setCurrentLevel(clamped);
+        setQuestion(makeQuestion(levelByNumber(clamped)));
+      } catch {
+        if (!cancelled) setLoadError('Network error — check your connection.');
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Clear the red "Try again" the moment the user starts retyping.
   useEffect(() => {
     if (feedback.kind === 'wrong' && (numInput || denInput)) {
       setFeedback({ kind: 'idle', message: '' });
@@ -317,34 +366,112 @@ function GameplayScreen() {
   }, [numInput, denInput]);
 
   function advanceToNextQuestion() {
-    setQuestion(makeQuestion(level));
+    if (currentLevel === null) return;
+    setQuestion(makeQuestion(levelByNumber(currentLevel)));
     setNumInput('');
     setDenInput('');
     setFeedback({ kind: 'idle', message: '' });
   }
 
   function onCheckAnswer() {
+    if (!question) return;
     const un = parseInt(numInput, 10);
     const ud = parseInt(denInput, 10);
-
     if (isNaN(un) || isNaN(ud) || ud === 0) {
       setFeedback({ kind: 'wrong', message: "Type a number on top and bottom (bottom can't be 0)." });
       return;
     }
-
-    // Cross-multiplication equivalence (ported from web index.html:960).
-    // Accepts any equivalent fraction — e.g. 2/4 for 1/2.
+    // Cross-multiplication equivalence — accepts any equivalent fraction (e.g. 2/4 for 1/2).
     const correct = un * question.answerDen === question.answerNum * ud;
 
     if (correct) {
-      setFeedback({ kind: 'correct', message: 'Correct!' });
-      // Brief celebration, then a fresh question. No cleanup ref this chunk —
-      // worst case is a no-op state update if the user signs out mid-pause.
-      setTimeout(advanceToNextQuestion, 1500);
+      const next = streak + 1;
+      setStreak(next);
+      if (next >= QUESTIONS_PER_LEVEL) {
+        // Level done. Show celebration; POST /api/scores happens on button tap.
+        setLevelComplete(true);
+      } else {
+        setFeedback({ kind: 'correct', message: 'Correct!' });
+        setTimeout(advanceToNextQuestion, 1500);
+      }
     } else {
+      setStreak(0);
       setFeedback({ kind: 'wrong', message: 'Try again.' });
     }
   }
+
+  // Save level score + (for non-game-complete) advance to the next level.
+  async function onLevelDone() {
+    if (currentLevel === null) return;
+    setSavingScore(true);
+    setSaveError('');
+    try {
+      const token = await getToken();
+      if (!token) { setSaveError('Could not get auth token.'); return; }
+
+      // Send the UNLOCKED level (= current + 1), capped at MAX_LEVEL so the
+      // server's GREATEST() stays inside the playable cycle. Web does the same
+      // (www/index.html:1066) — comment there: "save the UNLOCKED level".
+      const unlockedLevel = Math.min(currentLevel + 1, MAX_LEVEL);
+      const score = QUESTIONS_PER_LEVEL * POINTS_PER_CORRECT;
+
+      const res = await fetch(`${API_BASE}/api/scores`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ score, level: unlockedLevel }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) {
+        setSaveError(data?.error ?? `Could not save score (HTTP ${res.status}).`);
+        return;
+      }
+
+      // Saved! Advance — UNLESS this was the game-complete level.
+      if (currentLevel < MAX_LEVEL) {
+        const newLevel = currentLevel + 1;
+        setCurrentLevel(newLevel);
+        setStreak(0);
+        setLevelComplete(false);
+        setNumInput('');
+        setDenInput('');
+        setFeedback({ kind: 'idle', message: '' });
+        setQuestion(makeQuestion(levelByNumber(newLevel)));
+      } else {
+        // Game complete — stay on celebration, swap button for "Saved ✓".
+        setFinalScoreSaved(true);
+      }
+    } catch {
+      setSaveError('Network error — could not save score.');
+    } finally {
+      setSavingScore(false);
+    }
+  }
+
+  // ---- Render branches ----
+
+  // Loading / load-error state: /api/players hasn't resolved yet
+  if (currentLevel === null) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.centered}>
+          {loadError
+            ? <Text style={styles.error}>{loadError}</Text>
+            : <ActivityIndicator color={COLORS.accent} size="large" />}
+        </View>
+        <View style={styles.footerLinks}>
+          <Pressable onPress={() => signOut()} style={styles.linkButton}>
+            <Text style={styles.signOutText}>Sign out</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const level = levelByNumber(currentLevel);
+  const isGameComplete = currentLevel === MAX_LEVEL;
 
   // Color the '?/?' fraction green when correct, red when wrong, default otherwise.
   const answerColor =
@@ -354,70 +481,116 @@ function GameplayScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Header banner */}
+      {/* Header banner — level info + streak stars */}
       <View style={styles.gameHeader}>
-        <Text style={styles.gameHeaderLevel}>Level {levelNumber} · {level.name}</Text>
+        <Text style={styles.gameHeaderLevel}>Level {currentLevel} · {level.name}</Text>
         <Text style={styles.gameHeaderActivity}>{level.activityName}</Text>
+        <View style={styles.starRow}>
+          {Array.from({ length: QUESTIONS_PER_LEVEL }, (_, i) => (
+            <Text key={i} style={[styles.starChar, i < streak ? styles.starFilled : styles.starEmpty]}>
+              {i < streak ? '★' : '☆'}
+            </Text>
+          ))}
+        </View>
       </View>
 
-      {/* Centered question + inputs + check button + feedback */}
+      {/* Body: level-complete celebration OR active question */}
       <View style={styles.questionArea}>
-        <View style={styles.questionRow}>
-          <Fraction num={question.a} den={question.b} />
-          <Text style={styles.opSymbol}>{question.op}</Text>
-          <Fraction num={question.c} den={question.d} />
-          <Text style={styles.equals}>=</Text>
-          <Fraction num="?" den="?" color={answerColor} />
-        </View>
+        {levelComplete ? (
+          // ---- Level / Game complete celebration ----
+          <>
+            <Text style={styles.celebrationTitle}>
+              {isGameComplete ? 'Game Complete!' : 'Level Complete!'}
+            </Text>
+            <Text style={styles.celebrationEmoji}>{isGameComplete ? '🏆' : '🎉'}</Text>
+            <Text style={styles.celebrationScore}>
+              Score: {QUESTIONS_PER_LEVEL * POINTS_PER_CORRECT} points
+            </Text>
+            {isGameComplete && (
+              <Text style={styles.celebrationSubtitle}>You beat all 7 levels!</Text>
+            )}
 
-        {/* Debug only this chunk: shows the computed simplified answer.
-            Level 1 never has answerWhole; we'll handle mixed display later. */}
-        <Text style={styles.debugAnswer}>
-          (Answer: {question.answerNum}/{question.answerDen})
-        </Text>
+            {isGameComplete && finalScoreSaved ? (
+              <Text style={styles.savedText}>Score saved ✓</Text>
+            ) : (
+              <Pressable
+                onPress={onLevelDone}
+                disabled={savingScore}
+                style={({ pressed }) => [
+                  styles.checkButton,
+                  savingScore && styles.buttonDisabled,
+                  pressed && styles.buttonPressed,
+                ]}
+              >
+                {savingScore
+                  ? <ActivityIndicator color={COLORS.bg} />
+                  : <Text style={styles.checkButtonText}>
+                      {isGameComplete ? 'Save Final Score' : 'Continue to Next Level'}
+                    </Text>}
+              </Pressable>
+            )}
 
-        {/* Horizontal '[num] / [den]' input row, mirrors web .answer-row */}
-        <View style={styles.inputsRow}>
-          <TextInput
-            style={styles.answerInput}
-            placeholder="?" placeholderTextColor={COLORS.muted}
-            value={numInput} onChangeText={setNumInput}
-            keyboardType="number-pad" autoCapitalize="none"
-            editable={feedback.kind !== 'correct'}
-          />
-          <Text style={styles.inputBar}>/</Text>
-          <TextInput
-            style={styles.answerInput}
-            placeholder="?" placeholderTextColor={COLORS.muted}
-            value={denInput} onChangeText={setDenInput}
-            keyboardType="number-pad" autoCapitalize="none"
-            editable={feedback.kind !== 'correct'}
-          />
-        </View>
+            {!!saveError && <Text style={styles.error}>{saveError}</Text>}
+          </>
+        ) : (
+          // ---- Active question ----
+          <>
+            {question && (
+              <>
+                <View style={styles.questionRow}>
+                  <Fraction num={question.a} den={question.b} />
+                  <Text style={styles.opSymbol}>{question.op}</Text>
+                  <Fraction num={question.c} den={question.d} />
+                  <Text style={styles.equals}>=</Text>
+                  <Fraction num="?" den="?" color={answerColor} />
+                </View>
+                <Text style={styles.debugAnswer}>
+                  (Answer: {question.answerNum}/{question.answerDen})
+                </Text>
+              </>
+            )}
 
-        <Pressable
-          onPress={onCheckAnswer}
-          disabled={feedback.kind === 'correct'}
-          style={({ pressed }) => [
-            styles.checkButton,
-            feedback.kind === 'correct' && styles.buttonDisabled,
-            pressed && styles.buttonPressed,
-          ]}
-        >
-          <Text style={styles.checkButtonText}>Check Answer</Text>
-        </Pressable>
+            <View style={styles.inputsRow}>
+              <TextInput
+                style={styles.answerInput}
+                placeholder="?" placeholderTextColor={COLORS.muted}
+                value={numInput} onChangeText={setNumInput}
+                keyboardType="number-pad" autoCapitalize="none"
+                editable={feedback.kind !== 'correct'}
+              />
+              <Text style={styles.inputBar}>/</Text>
+              <TextInput
+                style={styles.answerInput}
+                placeholder="?" placeholderTextColor={COLORS.muted}
+                value={denInput} onChangeText={setDenInput}
+                keyboardType="number-pad" autoCapitalize="none"
+                editable={feedback.kind !== 'correct'}
+              />
+            </View>
 
-        {/* Feedback line — reserves space (minHeight) so layout doesn't jump */}
-        <Text style={[
-          styles.feedbackText,
-          feedback.kind === 'correct' && styles.feedbackGood,
-          feedback.kind === 'wrong'   && styles.feedbackBad,
-        ]}>
-          {feedback.message}
-        </Text>
+            <Pressable
+              onPress={onCheckAnswer}
+              disabled={feedback.kind === 'correct'}
+              style={({ pressed }) => [
+                styles.checkButton,
+                feedback.kind === 'correct' && styles.buttonDisabled,
+                pressed && styles.buttonPressed,
+              ]}
+            >
+              <Text style={styles.checkButtonText}>Check Answer</Text>
+            </Pressable>
+
+            <Text style={[
+              styles.feedbackText,
+              feedback.kind === 'correct' && styles.feedbackGood,
+              feedback.kind === 'wrong'   && styles.feedbackBad,
+            ]}>
+              {feedback.message}
+            </Text>
+          </>
+        )}
       </View>
 
-      {/* Footer: just Sign out now (New question auto-replaced by auto-advance) */}
       <View style={styles.footerLinks}>
         <Pressable onPress={() => signOut()} style={styles.linkButton}>
           <Text style={styles.signOutText}>Sign out</Text>
@@ -480,10 +653,14 @@ const styles = StyleSheet.create({
   // Link-style text (Use a different email)
   linkText: { color: COLORS.accent, fontSize: 14, marginTop: 8 },
 
-  // Gameplay header banner — level info, top-aligned, muted text
+  // Gameplay header banner — level info + streak stars
   gameHeader: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 12, alignItems: 'center' },
   gameHeaderLevel: { color: COLORS.muted, fontSize: 16, fontWeight: '700' },
   gameHeaderActivity: { color: COLORS.muted, fontSize: 13, marginTop: 2 },
+  starRow: { flexDirection: 'row', marginTop: 8, gap: 4 },
+  starChar: { fontSize: 20 },
+  starFilled: { color: COLORS.accent },
+  starEmpty: { color: COLORS.muted, opacity: 0.5 },
 
   // Centered question area takes the rest of the screen
   questionArea: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 16 },
@@ -505,8 +682,7 @@ const styles = StyleSheet.create({
   opSymbol: { fontSize: 40, fontWeight: '800', color: COLORS.accent, marginHorizontal: 4 },
   equals: { fontSize: 40, fontWeight: '800', color: COLORS.text, marginHorizontal: 4 },
 
-  // Debug answer line under the question (this chunk only — will go away
-  // when we trust the generator + check logic)
+  // Debug answer line under the question (chunks 2–3 only — removed in chunk 4)
   debugAnswer: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginTop: 12 },
 
   // Answer input boxes — horizontal '[num] / [den]', mirrors web .answer-row
@@ -519,7 +695,7 @@ const styles = StyleSheet.create({
   },
   inputBar: { color: COLORS.muted, fontSize: 30, fontWeight: '700' },
 
-  // Check Answer button — yellow pill, centered (not full-width like AuthScreen primary)
+  // Check Answer / Continue / Save Final Score — yellow pill button
   checkButton: {
     backgroundColor: COLORS.accent, borderRadius: 12,
     paddingHorizontal: 28, paddingVertical: 12, alignItems: 'center', marginTop: 16,
@@ -531,7 +707,14 @@ const styles = StyleSheet.create({
   feedbackGood: { color: COLORS.good },
   feedbackBad: { color: COLORS.bad },
 
-  // Footer links — Sign out only this chunk (New question link removed)
+  // Level / Game complete celebration
+  celebrationTitle: { fontSize: 28, fontWeight: '800', color: COLORS.accent, textAlign: 'center' },
+  celebrationEmoji: { fontSize: 72, textAlign: 'center', marginTop: 8 },
+  celebrationScore: { fontSize: 22, fontWeight: '700', color: COLORS.text, textAlign: 'center', marginTop: 12 },
+  celebrationSubtitle: { fontSize: 15, color: COLORS.muted, textAlign: 'center', marginTop: 4 },
+  savedText: { fontSize: 18, fontWeight: '700', color: COLORS.good, textAlign: 'center', marginTop: 20 },
+
+  // Footer links
   footerLinks: { paddingBottom: 16, alignItems: 'center', gap: 4 },
   linkButton: { padding: 8 },
   signOutText: { color: COLORS.muted, fontSize: 14 },
