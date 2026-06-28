@@ -3,10 +3,12 @@ import {
   View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, SafeAreaView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import {
   ClerkProvider, SignedIn, SignedOut, useSignIn, useSignUp, useAuth,
 } from '@clerk/clerk-expo';
 import { tokenCache } from '@clerk/clerk-expo/token-cache';
+import StickBossFight from './screens/StickBossFight';
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!;
 
@@ -34,17 +36,20 @@ const MAX_LEVEL = 7; // == LEVELS.length; the last level cycles on the server, b
 // Level 5's web `op` is the string 'imp'; rendered here as '→' so the op-symbol
 // slot stays visually consistent. Subtraction uses Unicode minus '−' (U+2212),
 // not '-' (hyphen) — keep this consistent everywhere ops are compared.
+// `activity` matches the web's per-level mini-game identifier and is used to
+// branch into the right mini-game after the 5 math questions are answered.
 type LevelOp = '+' | '−' | '×' | '÷' | '→';
-type Level = { op: LevelOp; name: string; activityName: string };
+type LevelActivity = 'fight' | 'pencil' | 'paper' | 'tetris' | 'bubbles' | 'connect4' | 'tictactoe';
+type Level = { op: LevelOp; activity: LevelActivity; name: string; activityName: string };
 
 const LEVELS: Level[] = [
-  { op: '+', name: 'Addition',        activityName: 'Stick Boss Fight' },
-  { op: '−', name: 'Subtraction',     activityName: 'Pencil Break' },
-  { op: '×', name: 'Multiplication',  activityName: 'Paper Toss' },
-  { op: '÷', name: 'Division',        activityName: 'Tetris (2 min)' },
-  { op: '→', name: 'Improper→Proper', activityName: 'Bubble Pop' },
-  { op: '+', name: 'Addition',        activityName: 'Connect 4' },
-  { op: '−', name: 'Subtraction',     activityName: 'Tic Tac Toe' },
+  { op: '+', activity: 'fight',     name: 'Addition',        activityName: 'Stick Boss Fight' },
+  { op: '−', activity: 'pencil',    name: 'Subtraction',     activityName: 'Pencil Break' },
+  { op: '×', activity: 'paper',     name: 'Multiplication',  activityName: 'Paper Toss' },
+  { op: '÷', activity: 'tetris',    name: 'Division',        activityName: 'Tetris (2 min)' },
+  { op: '→', activity: 'bubbles',   name: 'Improper→Proper', activityName: 'Bubble Pop' },
+  { op: '+', activity: 'connect4',  name: 'Addition',        activityName: 'Connect 4' },
+  { op: '−', activity: 'tictactoe', name: 'Subtraction',     activityName: 'Tic Tac Toe' },
 ];
 
 // ---------- MATH HELPERS (ported from www/index.html lines 747–851) ----------
@@ -300,7 +305,7 @@ function Fraction({ num, den, color }: { num: string | number; den: string | num
   );
 }
 
-// ---------- SIGNED IN: Gameplay (chunk 3 — real currentLevel + streak + level/game complete) ----------
+// ---------- SIGNED IN: Gameplay ----------
 function GameplayScreen() {
   const { signOut, getToken } = useAuth();
 
@@ -319,6 +324,10 @@ function GameplayScreen() {
   // Streak = correct-in-a-row. Resets on wrong. Hits QUESTIONS_PER_LEVEL → level done.
   const [streak, setStreak] = useState(0);
   const [levelComplete, setLevelComplete] = useState(false);
+
+  // Chunk 4: when a level with a mini-game finishes its 5 math questions,
+  // we branch into the mini-game screen before showing the celebration.
+  const [fightInProgress, setFightInProgress] = useState(false);
 
   // POST /api/scores lifecycle
   const [savingScore, setSavingScore] = useState(false);
@@ -347,8 +356,13 @@ function GameplayScreen() {
         const lvl = typeof data.currentLevel === 'number' ? data.currentLevel : 1;
         // Clamp: server may have a cycled value (>7) from web sessions; treat as 7.
         const clamped = Math.min(Math.max(1, lvl), MAX_LEVEL);
-        setCurrentLevel(clamped);
-        setQuestion(makeQuestion(levelByNumber(clamped)));
+
+        // ⚠️ CHUNK 4 TESTING ONLY — REMOVE BEFORE COMMIT.
+        // Forces Level 1 so we can test the fight without grinding to it.
+        // setCurrentLevel(clamped);                       ← real line, restore at commit
+        // setQuestion(makeQuestion(levelByNumber(clamped)));  ← real line, restore at commit
+        setCurrentLevel(1);
+        setQuestion(makeQuestion(levelByNumber(1)));
       } catch {
         if (!cancelled) setLoadError('Network error — check your connection.');
       }
@@ -364,6 +378,12 @@ function GameplayScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [numInput, denInput]);
+
+  // Called by StickBossFight on win (or by the DEV-Skip button in chunks 4a/4b).
+  function onFightWin() {
+    setFightInProgress(false);
+    setLevelComplete(true); // hand off to the existing celebration flow
+  }
 
   function advanceToNextQuestion() {
     if (currentLevel === null) return;
@@ -388,8 +408,14 @@ function GameplayScreen() {
       const next = streak + 1;
       setStreak(next);
       if (next >= QUESTIONS_PER_LEVEL) {
-        // Level done. Show celebration; POST /api/scores happens on button tap.
-        setLevelComplete(true);
+        // Math done. If this level has a fight mini-game, run it before the
+        // celebration. Other mini-games (pencil/paper/etc.) aren't built yet —
+        // those levels skip straight to celebration for now.
+        if (currentLevel !== null && levelByNumber(currentLevel).activity === 'fight') {
+          setFightInProgress(true);
+        } else {
+          setLevelComplete(true);
+        }
       } else {
         setFeedback({ kind: 'correct', message: 'Correct!' });
         setTimeout(advanceToNextQuestion, 1500);
@@ -467,6 +493,18 @@ function GameplayScreen() {
           </Pressable>
         </View>
       </SafeAreaView>
+    );
+  }
+
+  // Fight screen replaces the entire body when active. Skips the gameHeader,
+  // since the fight UI has its own header.
+  if (fightInProgress) {
+    return (
+      <StickBossFight
+        level={currentLevel}
+        onWin={onFightWin}
+        onSignOut={() => signOut()}
+      />
     );
   }
 
@@ -614,11 +652,13 @@ export default function App() {
     );
   }
   return (
-    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-      <SignedOut><AuthScreen /></SignedOut>
-      <SignedIn><GameplayScreen /></SignedIn>
-      <StatusBar style="light" />
-    </ClerkProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+        <SignedOut><AuthScreen /></SignedOut>
+        <SignedIn><GameplayScreen /></SignedIn>
+        <StatusBar style="light" />
+      </ClerkProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -682,7 +722,7 @@ const styles = StyleSheet.create({
   opSymbol: { fontSize: 40, fontWeight: '800', color: COLORS.accent, marginHorizontal: 4 },
   equals: { fontSize: 40, fontWeight: '800', color: COLORS.text, marginHorizontal: 4 },
 
-  // Debug answer line under the question (chunks 2–3 only — removed in chunk 4)
+  // Debug answer line under the question (chunks 2–3 only — removed in chunk 4c)
   debugAnswer: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginTop: 12 },
 
   // Answer input boxes — horizontal '[num] / [den]', mirrors web .answer-row
