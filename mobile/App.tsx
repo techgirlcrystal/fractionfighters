@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, SafeAreaView,
 } from 'react-native';
@@ -18,6 +18,7 @@ const COLORS = {
   text: '#e8ecff',
   muted: '#9aa3d0',
   bad: '#f87171',
+  good: '#4ade80',
   border: '#3a3f7a',
 };
 
@@ -281,16 +282,17 @@ function AuthScreen() {
 }
 
 // ---------- FRACTION DISPLAY ----------
-function Fraction({ num, den }: { num: string | number; den: string | number }) {
+function Fraction({ num, den, color }: { num: string | number; den: string | number; color?: string }) {
+  const fg = color ?? COLORS.text;
   return (
     <View style={styles.frac}>
-      <Text style={styles.fracTop}>{num}</Text>
-      <Text style={styles.fracBot}>{den}</Text>
+      <Text style={[styles.fracTop, { color: fg, borderBottomColor: fg }]}>{num}</Text>
+      <Text style={[styles.fracBot, { color: fg }]}>{den}</Text>
     </View>
   );
 }
 
-// ---------- SIGNED IN: Gameplay (chunk 2 — display only, hardcoded level 1) ----------
+// ---------- SIGNED IN: Gameplay (chunk 2 — answer inputs + Check Answer + feedback) ----------
 function GameplayScreen() {
   const { signOut } = useAuth();
 
@@ -299,13 +301,56 @@ function GameplayScreen() {
   const levelNumber = 1;
   const level = levelByNumber(levelNumber);
 
-  // Lazy initial state: makeQuestion runs once on first render. No null state,
-  // no loading flicker — for hardcoded level we have everything synchronously.
   const [question, setQuestion] = useState<Question>(() => makeQuestion(level));
+  const [numInput, setNumInput] = useState('');
+  const [denInput, setDenInput] = useState('');
+  type Feedback = { kind: 'idle' | 'correct' | 'wrong'; message: string };
+  const [feedback, setFeedback] = useState<Feedback>({ kind: 'idle', message: '' });
 
-  function onNewQuestion() {
+  // When the user starts retyping after a wrong answer, clear the red message.
+  // (They've seen it; now they're correcting it — don't keep yelling at them.)
+  useEffect(() => {
+    if (feedback.kind === 'wrong' && (numInput || denInput)) {
+      setFeedback({ kind: 'idle', message: '' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [numInput, denInput]);
+
+  function advanceToNextQuestion() {
     setQuestion(makeQuestion(level));
+    setNumInput('');
+    setDenInput('');
+    setFeedback({ kind: 'idle', message: '' });
   }
+
+  function onCheckAnswer() {
+    const un = parseInt(numInput, 10);
+    const ud = parseInt(denInput, 10);
+
+    if (isNaN(un) || isNaN(ud) || ud === 0) {
+      setFeedback({ kind: 'wrong', message: "Type a number on top and bottom (bottom can't be 0)." });
+      return;
+    }
+
+    // Cross-multiplication equivalence (ported from web index.html:960).
+    // Accepts any equivalent fraction — e.g. 2/4 for 1/2.
+    const correct = un * question.answerDen === question.answerNum * ud;
+
+    if (correct) {
+      setFeedback({ kind: 'correct', message: 'Correct!' });
+      // Brief celebration, then a fresh question. No cleanup ref this chunk —
+      // worst case is a no-op state update if the user signs out mid-pause.
+      setTimeout(advanceToNextQuestion, 1500);
+    } else {
+      setFeedback({ kind: 'wrong', message: 'Try again.' });
+    }
+  }
+
+  // Color the '?/?' fraction green when correct, red when wrong, default otherwise.
+  const answerColor =
+    feedback.kind === 'correct' ? COLORS.good :
+    feedback.kind === 'wrong'   ? COLORS.bad  :
+    undefined;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -315,14 +360,14 @@ function GameplayScreen() {
         <Text style={styles.gameHeaderActivity}>{level.activityName}</Text>
       </View>
 
-      {/* Centered question */}
+      {/* Centered question + inputs + check button + feedback */}
       <View style={styles.questionArea}>
         <View style={styles.questionRow}>
           <Fraction num={question.a} den={question.b} />
           <Text style={styles.opSymbol}>{question.op}</Text>
           <Fraction num={question.c} den={question.d} />
           <Text style={styles.equals}>=</Text>
-          <Fraction num="?" den="?" />
+          <Fraction num="?" den="?" color={answerColor} />
         </View>
 
         {/* Debug only this chunk: shows the computed simplified answer.
@@ -330,13 +375,50 @@ function GameplayScreen() {
         <Text style={styles.debugAnswer}>
           (Answer: {question.answerNum}/{question.answerDen})
         </Text>
+
+        {/* Horizontal '[num] / [den]' input row, mirrors web .answer-row */}
+        <View style={styles.inputsRow}>
+          <TextInput
+            style={styles.answerInput}
+            placeholder="?" placeholderTextColor={COLORS.muted}
+            value={numInput} onChangeText={setNumInput}
+            keyboardType="number-pad" autoCapitalize="none"
+            editable={feedback.kind !== 'correct'}
+          />
+          <Text style={styles.inputBar}>/</Text>
+          <TextInput
+            style={styles.answerInput}
+            placeholder="?" placeholderTextColor={COLORS.muted}
+            value={denInput} onChangeText={setDenInput}
+            keyboardType="number-pad" autoCapitalize="none"
+            editable={feedback.kind !== 'correct'}
+          />
+        </View>
+
+        <Pressable
+          onPress={onCheckAnswer}
+          disabled={feedback.kind === 'correct'}
+          style={({ pressed }) => [
+            styles.checkButton,
+            feedback.kind === 'correct' && styles.buttonDisabled,
+            pressed && styles.buttonPressed,
+          ]}
+        >
+          <Text style={styles.checkButtonText}>Check Answer</Text>
+        </Pressable>
+
+        {/* Feedback line — reserves space (minHeight) so layout doesn't jump */}
+        <Text style={[
+          styles.feedbackText,
+          feedback.kind === 'correct' && styles.feedbackGood,
+          feedback.kind === 'wrong'   && styles.feedbackBad,
+        ]}>
+          {feedback.message}
+        </Text>
       </View>
 
-      {/* Footer links — stacked, New question above Sign out */}
+      {/* Footer: just Sign out now (New question auto-replaced by auto-advance) */}
       <View style={styles.footerLinks}>
-        <Pressable onPress={onNewQuestion} style={styles.linkButton}>
-          <Text style={styles.newQuestionText}>New question</Text>
-        </Pressable>
         <Pressable onPress={() => signOut()} style={styles.linkButton}>
           <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
@@ -386,7 +468,7 @@ const styles = StyleSheet.create({
     borderRadius: 8, padding: 14, fontSize: 16, color: COLORS.text,
   },
 
-  // Primary action (yellow button, dark text)
+  // Primary action (yellow button, dark text) — used by AuthScreen
   primaryButton: {
     width: '100%', backgroundColor: COLORS.accent, borderRadius: 8, padding: 16,
     alignItems: 'center', marginTop: 4,
@@ -424,12 +506,33 @@ const styles = StyleSheet.create({
   equals: { fontSize: 40, fontWeight: '800', color: COLORS.text, marginHorizontal: 4 },
 
   // Debug answer line under the question (this chunk only — will go away
-  // when real answer inputs land in the next chunk)
+  // when we trust the generator + check logic)
   debugAnswer: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginTop: 12 },
 
-  // Footer links — stacked, centered, with comfortable tap targets
+  // Answer input boxes — horizontal '[num] / [den]', mirrors web .answer-row
+  inputsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20 },
+  answerInput: {
+    width: 80, height: 56, backgroundColor: '#0a0d24',
+    borderWidth: 3, borderColor: COLORS.border, borderRadius: 10,
+    textAlign: 'center', fontSize: 28, fontWeight: '700', color: COLORS.text,
+    padding: 0,
+  },
+  inputBar: { color: COLORS.muted, fontSize: 30, fontWeight: '700' },
+
+  // Check Answer button — yellow pill, centered (not full-width like AuthScreen primary)
+  checkButton: {
+    backgroundColor: COLORS.accent, borderRadius: 12,
+    paddingHorizontal: 28, paddingVertical: 12, alignItems: 'center', marginTop: 16,
+  },
+  checkButtonText: { color: COLORS.bg, fontSize: 18, fontWeight: '700' },
+
+  // Feedback message — fixed minHeight so layout doesn't shift between states
+  feedbackText: { fontSize: 18, fontWeight: '700', textAlign: 'center', marginTop: 12, minHeight: 26 },
+  feedbackGood: { color: COLORS.good },
+  feedbackBad: { color: COLORS.bad },
+
+  // Footer links — Sign out only this chunk (New question link removed)
   footerLinks: { paddingBottom: 16, alignItems: 'center', gap: 4 },
   linkButton: { padding: 8 },
-  newQuestionText: { color: COLORS.accent, fontSize: 14, fontWeight: '600' },
   signOutText: { color: COLORS.muted, fontSize: 14 },
 });
