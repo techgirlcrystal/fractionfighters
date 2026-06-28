@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
-  View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator,
-  ScrollView, SafeAreaView, Alert,
+  View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, SafeAreaView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
-  ClerkProvider, SignedIn, SignedOut, useSignIn, useSignUp, useUser, useAuth,
+  ClerkProvider, SignedIn, SignedOut, useSignIn, useSignUp, useAuth,
 } from '@clerk/clerk-expo';
 import { tokenCache } from '@clerk/clerk-expo/token-cache';
 
@@ -22,12 +21,14 @@ const COLORS = {
   border: '#3a3f7a',
 };
 
-// Backend lives on the correctly-spelled domain (see memory: ff-domain-split).
-const API_BASE = 'https://fightingfractions.xautimarketingai.com';
+// ---------- LEVELS (mirrors www/index.html LEVELS at line 756) ----------
+// Level 5's web `op` is the string 'imp'; rendered here as '→' so the op-symbol
+// slot stays visually consistent. Subtraction uses Unicode minus '−' (U+2212),
+// not '-' (hyphen) — keep this consistent everywhere ops are compared.
+type LevelOp = '+' | '−' | '×' | '÷' | '→';
+type Level = { op: LevelOp; name: string; activityName: string };
 
-// Mirrors www/index.html LEVELS (line 756). Level 5's web `op` is the string
-// 'imp'; rendered here as '→' so the op-symbol slot stays visually consistent.
-const LEVELS = [
+const LEVELS: Level[] = [
   { op: '+', name: 'Addition',        activityName: 'Stick Boss Fight' },
   { op: '−', name: 'Subtraction',     activityName: 'Pencil Break' },
   { op: '×', name: 'Multiplication',  activityName: 'Paper Toss' },
@@ -37,6 +38,108 @@ const LEVELS = [
   { op: '−', name: 'Subtraction',     activityName: 'Tic Tac Toe' },
 ];
 
+// ---------- MATH HELPERS (ported from www/index.html lines 747–851) ----------
+function gcd(a: number, b: number): number {
+  a = Math.abs(a); b = Math.abs(b);
+  while (b) { [a, b] = [b, a % b]; }
+  return a || 1;
+}
+
+function simplify(n: number, d: number): [number, number] {
+  if (d === 0) return [n, d];
+  if (d < 0) { n = -n; d = -d; }
+  const g = gcd(n, d);
+  return [n / g, d / g];
+}
+
+function rand(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// Web cycles after 7 levels: LEVELS[(round-1) % LEVELS.length].
+// The extra `(... + length) % length` defends against negative numbers.
+function levelByNumber(n: number): Level {
+  const i = ((n - 1) % LEVELS.length + LEVELS.length) % LEVELS.length;
+  return LEVELS[i];
+}
+
+type Question = {
+  a: number; b: number; c: number; d: number;
+  op: LevelOp;
+  answerNum: number; answerDen: number; answerWhole: number;
+};
+
+// Direct port of www/index.html `makeQuestion()` at line 780.
+function makeQuestion(level: Level): Question {
+  const op = level.op;
+  let a = 0, b = 1, c = 0, d = 1, num = 0, den = 1;
+
+  if (op === '→') {
+    // Improper → Proper: improper fraction, student converts to mixed number.
+    // Avoid clean integers like 6/3 → 2.
+    do {
+      b = rand(2, 8);
+      a = rand(b + 1, b * 3);
+    } while (a % b === 0);
+    c = 0; d = 0;
+    num = a; den = b;
+  } else if (op === '×') {
+    b = rand(2, 8); d = rand(2, 8);
+    a = rand(1, b - 1); c = rand(1, d - 1);
+    num = a * c; den = b * d;
+  } else if (op === '÷') {
+    b = rand(2, 8); d = rand(2, 8);
+    a = rand(1, b - 1); c = rand(1, d - 1);
+    num = a * d; den = b * c;
+  } else {
+    // Addition (+) or Subtraction (−). Pick a difficulty mode at random.
+    const mode = Math.random();
+    if (mode < 0.35) {
+      // like denominators (easy)
+      d = rand(2, 8); b = d;
+      a = rand(1, d - 1); c = rand(1, d - 1);
+    } else if (mode < 0.75) {
+      // unlike, friendly LCD (one is a multiple of the other)
+      b = rand(2, 5); d = b * rand(2, 3);
+      a = rand(1, b - 1); c = rand(1, d - 1);
+    } else {
+      // unlike, small denominators that share a factor
+      const pairs: [number, number][] = [[2,4],[3,6],[2,6],[3,4],[2,3],[4,6],[2,8],[3,8]];
+      const [pb, pd] = pairs[rand(0, pairs.length - 1)];
+      b = pb; d = pd;
+      a = rand(1, b - 1); c = rand(1, d - 1);
+    }
+    if (op === '+') { num = a*d + c*b; den = b*d; }
+    else {
+      // ensure positive, non-zero result for subtraction
+      if ((a/b) <= (c/d)) { [a, c] = [c, a]; [b, d] = [d, b]; }
+      num = a*d - c*b; den = b*d;
+    }
+  }
+
+  // Zero-numerator guard (defensive; mainly fires for subtraction).
+  let guard = 0;
+  while (num === 0 && guard < 10) {
+    c = rand(1, Math.max(2, d - 1));
+    if (op === '+') { num = a*d + c*b; }
+    else if (op === '−') { if ((a/b) <= (c/d)) { [a,c]=[c,a]; [b,d]=[d,b]; } num = a*d - c*b; }
+    else if (op === '×') { num = a*c; }
+    else if (op === '÷') { num = a*d; den = b*c; }
+    else { num = a; den = b; }
+    guard++;
+  }
+
+  let answerWhole = 0, rn: number, rd: number;
+  if (op === '→') {
+    answerWhole = Math.floor(num / den);
+    [rn, rd] = simplify(num % den, den);
+  } else {
+    [rn, rd] = simplify(num, den);
+  }
+  return { a, b, c, d, op, answerNum: rn, answerDen: rd, answerWhole };
+}
+
+// ---------- AUTH ERROR HELPERS ----------
 function errMessage(e: any): string {
   return e?.errors?.[0]?.longMessage ?? e?.errors?.[0]?.message ?? 'Something went wrong. Try again.';
 }
@@ -177,102 +280,67 @@ function AuthScreen() {
   );
 }
 
-// ---------- SIGNED IN: Level Menu ----------
-function LevelMenuScreen() {
-  const { user } = useUser();
-  const { signOut, getToken } = useAuth();
-  const name =
-    user?.firstName ??
-    user?.primaryEmailAddress?.emailAddress?.split('@')[0] ??
-    'friend';
+// ---------- FRACTION DISPLAY ----------
+function Fraction({ num, den }: { num: string | number; den: string | number }) {
+  return (
+    <View style={styles.frac}>
+      <Text style={styles.fracTop}>{num}</Text>
+      <Text style={styles.fracBot}>{den}</Text>
+    </View>
+  );
+}
 
-  // null = not loaded yet, number = loaded value from the server.
-  const [currentLevel, setCurrentLevel] = useState<number | null>(null);
-  const [error, setError] = useState('');
+// ---------- SIGNED IN: Gameplay (chunk 2 — display only, hardcoded level 1) ----------
+function GameplayScreen() {
+  const { signOut } = useAuth();
 
-  // Fetch the user's progress on mount. POST /api/players is the upsert that
-  // the web app already calls on load; it returns `currentLevel` either way
-  // (creates a row at level 1 for new users, returns the existing level for
-  // returning users). Bearer auth: Clerk session token via getToken().
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const token = await getToken();
-        if (cancelled) return;
-        if (!token) {
-          setError('Could not get auth token — try signing out and back in.');
-          return;
-        }
-        const res = await fetch(`${API_BASE}/api/players`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json().catch(() => null);
-        if (cancelled) return;
-        if (!res.ok || !data?.success) {
-          setError(data?.error ?? `Could not load your progress (HTTP ${res.status}).`);
-          return;
-        }
-        setCurrentLevel(typeof data.currentLevel === 'number' ? data.currentLevel : 1);
-      } catch {
-        if (!cancelled) setError('Network error — check your connection.');
-      }
-    })();
-    return () => { cancelled = true; };
-    // Run once on mount. getToken from Clerk's useAuth changes identity per
-    // render in some versions; we only want one fetch, so deps are empty.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Hardcoded for chunk 2. Real /api/players → currentLevel auto-routing lands
+  // in chunk 3; the fetch code lives in git at commit 67caaee for reference.
+  const levelNumber = 1;
+  const level = levelByNumber(levelNumber);
+
+  // Lazy initial state: makeQuestion runs once on first render. No null state,
+  // no loading flicker — for hardcoded level we have everything synchronously.
+  const [question, setQuestion] = useState<Question>(() => makeQuestion(level));
+
+  function onNewQuestion() {
+    setQuestion(makeQuestion(level));
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.menuScroll}>
-        <Text style={styles.title}>Fighting Fractions</Text>
-        <Text style={[styles.subtitle, styles.menuSubtitle]}>Welcome, {name}</Text>
+      {/* Header banner */}
+      <View style={styles.gameHeader}>
+        <Text style={styles.gameHeaderLevel}>Level {levelNumber} · {level.name}</Text>
+        <Text style={styles.gameHeaderActivity}>{level.activityName}</Text>
+      </View>
 
-        {/* Three states for the progress line: loading / error / loaded */}
-        {error ? (
-          <Text style={styles.progressError}>{error}</Text>
-        ) : currentLevel === null ? (
-          <Text style={styles.progressLoading}>Loading your progress…</Text>
-        ) : (
-          <Text style={styles.progressLine}>
-            Your current level: <Text style={styles.progressLineNumber}>{currentLevel}</Text>
-          </Text>
-        )}
+      {/* Centered question */}
+      <View style={styles.questionArea}>
+        <View style={styles.questionRow}>
+          <Fraction num={question.a} den={question.b} />
+          <Text style={styles.opSymbol}>{question.op}</Text>
+          <Fraction num={question.c} den={question.d} />
+          <Text style={styles.equals}>=</Text>
+          <Fraction num="?" den="?" />
+        </View>
 
-        {LEVELS.map((lvl, i) => {
-          const num = i + 1;
-          const isCurrent = num === currentLevel;
-          return (
-            <Pressable
-              key={num}
-              onPress={() =>
-                Alert.alert('Coming soon', `Level ${num}: ${lvl.name} · ${lvl.activityName}`)
-              }
-              style={({ pressed }) => [
-                styles.card,
-                isCurrent && styles.cardCurrent,
-                pressed && styles.cardPressed,
-              ]}
-            >
-              <Text style={[styles.cardNumber, isCurrent && styles.cardNumberCurrent]}>{num}</Text>
-              <Text style={styles.cardOp}>{lvl.op}</Text>
-              <View style={styles.cardTextWrap}>
-                <Text style={styles.cardName}>{lvl.name}</Text>
-                <Text style={[styles.cardActivity, isCurrent && styles.cardActivityCurrent]}>
-                  {lvl.activityName}
-                </Text>
-              </View>
-            </Pressable>
-          );
-        })}
+        {/* Debug only this chunk: shows the computed simplified answer.
+            Level 1 never has answerWhole; we'll handle mixed display later. */}
+        <Text style={styles.debugAnswer}>
+          (Answer: {question.answerNum}/{question.answerDen})
+        </Text>
+      </View>
 
-        <Pressable onPress={() => signOut()} style={styles.signOutLink}>
+      {/* Footer links — stacked, New question above Sign out */}
+      <View style={styles.footerLinks}>
+        <Pressable onPress={onNewQuestion} style={styles.linkButton}>
+          <Text style={styles.newQuestionText}>New question</Text>
+        </Pressable>
+        <Pressable onPress={() => signOut()} style={styles.linkButton}>
           <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -293,7 +361,7 @@ export default function App() {
   return (
     <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
       <SignedOut><AuthScreen /></SignedOut>
-      <SignedIn><LevelMenuScreen /></SignedIn>
+      <SignedIn><GameplayScreen /></SignedIn>
       <StatusBar style="light" />
     </ClerkProvider>
   );
@@ -303,9 +371,8 @@ const styles = StyleSheet.create({
   // Layout
   safeArea: { flex: 1, backgroundColor: COLORS.bg },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
-  menuScroll: { padding: 24, gap: 12, alignItems: 'stretch' },
 
-  // Typography
+  // Typography (shared by AuthScreen)
   title: {
     fontSize: 32, fontWeight: '800', textAlign: 'center', color: COLORS.accent,
     textShadowColor: '#000', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 0,
@@ -331,26 +398,38 @@ const styles = StyleSheet.create({
   // Link-style text (Use a different email)
   linkText: { color: COLORS.accent, fontSize: 14, marginTop: 8 },
 
-  // Level cards — borderWidth stays 2 always, only color changes when current
-  // (avoids any layout shift when the highlight applies).
-  card: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.panel,
-    borderWidth: 2, borderColor: COLORS.border, borderRadius: 12, padding: 16, gap: 14,
-  },
-  cardCurrent: { borderColor: COLORS.accent },
-  cardPressed: { opacity: 0.75 },
-  cardNumber: { color: COLORS.muted, fontSize: 24, fontWeight: '700', width: 28, textAlign: 'center' },
-  cardNumberCurrent: { color: COLORS.accent },
-  cardOp: { color: COLORS.accent, fontSize: 32, fontWeight: '800', width: 36, textAlign: 'center' },
-  cardTextWrap: { flex: 1 },
-  cardName: { color: COLORS.text, fontSize: 18, fontWeight: '700' },
-  cardActivity: { color: COLORS.muted, fontSize: 14, marginTop: 2 },
-  cardActivityCurrent: { color: COLORS.text },
+  // Gameplay header banner — level info, top-aligned, muted text
+  gameHeader: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 12, alignItems: 'center' },
+  gameHeaderLevel: { color: COLORS.muted, fontSize: 16, fontWeight: '700' },
+  gameHeaderActivity: { color: COLORS.muted, fontSize: 13, marginTop: 2 },
 
-  // Menu progress line (under the Welcome subtitle)
-  menuSubtitle: { marginBottom: 4 },
-  progressLine: { color: COLORS.text, fontSize: 14, textAlign: 'center', marginBottom: 16 },
-  progressLineNumber: { color: COLORS.accent, fontWeight: '700' },
-  progressLoading: { color: COLORS.muted, fontSize: 14, textAlign: 'center', marginBottom: 16 },
-  progressError: { color: COLORS.bad, fontSize: 14, textAlign: 'center', marginBottom: 16 },
+  // Centered question area takes the rest of the screen
+  questionArea: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 16 },
+  // flexWrap is a safety net for multi-digit numerators in future levels.
+  questionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' },
+
+  // Fraction display — flexbox column with a border-bottom on the numerator
+  // is the exact RN translation of web's .frac CSS (lines 106–116).
+  frac: { flexDirection: 'column', alignItems: 'center', marginHorizontal: 4 },
+  fracTop: {
+    fontSize: 40, fontWeight: '800', color: COLORS.text,
+    borderBottomWidth: 3, borderBottomColor: COLORS.text,
+    paddingHorizontal: 8, lineHeight: 48, textAlign: 'center',
+  },
+  fracBot: {
+    fontSize: 40, fontWeight: '800', color: COLORS.text,
+    paddingHorizontal: 8, lineHeight: 48, textAlign: 'center',
+  },
+  opSymbol: { fontSize: 40, fontWeight: '800', color: COLORS.accent, marginHorizontal: 4 },
+  equals: { fontSize: 40, fontWeight: '800', color: COLORS.text, marginHorizontal: 4 },
+
+  // Debug answer line under the question (this chunk only — will go away
+  // when real answer inputs land in the next chunk)
+  debugAnswer: { color: COLORS.muted, fontSize: 12, fontStyle: 'italic', marginTop: 12 },
+
+  // Footer links — stacked, centered, with comfortable tap targets
+  footerLinks: { paddingBottom: 16, alignItems: 'center', gap: 4 },
+  linkButton: { padding: 8 },
+  newQuestionText: { color: COLORS.accent, fontSize: 14, fontWeight: '600' },
+  signOutText: { color: COLORS.muted, fontSize: 14 },
 });
